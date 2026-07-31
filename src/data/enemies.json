@@ -1,0 +1,28 @@
+{
+  "ghoul": {
+    "radius": 13,
+    "hp": 100,
+    "speed": 120,
+    "touchDamage": 10,
+    "kbResist": 1.0
+  },
+  "archer": {
+    "radius": 12,
+    "hp": 70,
+    "speed": 95,
+    "touchDamage": 6,
+    "kbResist": 1.0,
+    "preferMin": 200,
+    "preferMax": 300,
+    "shootCooldown": 1.8,
+    "projectileSpeed": 320,
+    "projectileDamage": 14
+  },
+  "brute": {
+    "radius": 22,
+    "hp": 320,
+    "speed": 60,
+    "touchDamage": 25,
+    "kbResist": 0.3
+  }
+}

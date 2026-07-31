@@ -64,8 +64,8 @@ function stepAttack(s: GameState, inp: InputFrame): void {
     e.hp -= T.attackDamage;
     e.hitFlash = 0.1;
     const kb = norm({ x: dx, y: dy });
-    e.vel.x += kb.x * T.attackKnockback;
-    e.vel.y += kb.y * T.attackKnockback;
+    e.vel.x += kb.x * T.attackKnockback * e.kbResist;
+    e.vel.y += kb.y * T.attackKnockback * e.kbResist;
     s.hitstop = T.hitstopSec;
     s.events.push({ type: 'enemyHit', pos: { ...e.pos }, angle: p.facing });
   }

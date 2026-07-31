@@ -1,5 +1,6 @@
 import type { Vec } from '../engine/math';
 import { T } from './tuning';
+import ENEMIES from '../data/enemies.json';
 
 export interface InputFrame {
   moveX: number; // -1..1
@@ -23,8 +24,11 @@ export interface Player {
   invulnTimer: number;
 }
 
+export type EnemyKind = 'ghoul' | 'archer' | 'brute';
+
 export interface Enemy {
   id: number;
+  kind: EnemyKind;
   pos: Vec;
   vel: Vec; // 넉백 잔여 속도
   radius: number;
@@ -32,6 +36,8 @@ export interface Enemy {
   hitFlash: number;
   speed: number;
   touchDamage: number;
+  kbResist: number; // 넉백 배율 (1=그대로, 0.3=저항)
+  shootTimer: number; // archer 전용 발사 쿨다운
 }
 
 export type GameEvent =
@@ -64,16 +70,20 @@ export function createPlayer(pos: Vec): Player {
   };
 }
 
-export function createEnemy(id: number, pos: Vec): Enemy {
+export function createEnemy(id: number, pos: Vec, kind: EnemyKind = 'ghoul'): Enemy {
+  const data = ENEMIES[kind];
   return {
     id,
+    kind,
     pos: { ...pos },
     vel: { x: 0, y: 0 },
-    radius: T.enemyRadius,
-    hp: T.enemyHp,
+    radius: data.radius,
+    hp: data.hp,
     hitFlash: 0,
-    speed: T.enemySpeed,
-    touchDamage: T.enemyTouchDamage,
+    speed: data.speed,
+    touchDamage: data.touchDamage,
+    kbResist: data.kbResist,
+    shootTimer: 0,
   };
 }
 

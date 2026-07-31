@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { step } from '../src/game/sim';
 import { createEnemy, createState, idleInput } from '../src/game/state';
 import { T } from '../src/game/tuning';
+import ENEMIES from '../src/data/enemies.json';
 
 describe('combat: 대시', () => {
   it('대시 중에는 접촉 피해를 받지 않는다', () => {
@@ -28,8 +29,8 @@ describe('combat: 공격', () => {
     step(s, { ...idleInput(), attack: true, aimX: 100, aimY: 0 });
     const front = s.enemies.find((e) => e.id === 1)!;
     const back = s.enemies.find((e) => e.id === 2)!;
-    expect(front.hp).toBe(T.enemyHp - T.attackDamage);
-    expect(back.hp).toBe(T.enemyHp);
+    expect(front.hp).toBe(ENEMIES.ghoul.hp - T.attackDamage);
+    expect(back.hp).toBe(ENEMIES.ghoul.hp);
   });
 
   it('적 처치 시 목록에서 제거되고 enemyDied 이벤트가 남는다', () => {
@@ -58,8 +59,8 @@ describe('combat: 접촉 피해', () => {
     const s = createState();
     s.enemies.push(createEnemy(1, { x: 0, y: 0 }));
     step(s, idleInput());
-    expect(s.player.hp).toBe(T.playerMaxHp - T.enemyTouchDamage);
+    expect(s.player.hp).toBe(T.playerMaxHp - ENEMIES.ghoul.touchDamage);
     step(s, idleInput());
-    expect(s.player.hp).toBe(T.playerMaxHp - T.enemyTouchDamage);
+    expect(s.player.hp).toBe(T.playerMaxHp - ENEMIES.ghoul.touchDamage);
   });
 });

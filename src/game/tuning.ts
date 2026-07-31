@@ -12,9 +12,5 @@ export const T = {
   attackCooldown: 0.25,
   attackKnockback: 260,
   hitstopSec: 0.05,
-  enemyRadius: 13,
-  enemyHp: 100,
-  enemySpeed: 120,
-  enemyTouchDamage: 10,
   playerInvulnAfterHit: 0.6,
 } as const;
