@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "test": "vitest run --passWithNoTests"
+    "test": "vitest run --passWithNoTests",
+    "gen:assets": "node --env-file=.env tools/gen-assets.mjs"
   },
   "dependencies": {
     "pixi.js": "^8.6.6"

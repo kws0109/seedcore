@@ -1,0 +1,34 @@
+{
+  "style": "dark medieval fantasy game sprite, 3/4 top-down view, painterly grim texture, muted desaturated palette of ash grey, bone white, dried blood red and tarnished brass, torch-lit mood, single centered subject filling most of the frame, no text, no watermark, isolated on transparent background",
+  "output": "public/assets",
+  "assets": [
+    {
+      "id": "player-knight",
+      "prompt": "a lone knight in battered dark steel armor with a tattered crimson cloak, gripping a worn longsword, seen from above and slightly behind"
+    },
+    {
+      "id": "enemy-ghoul",
+      "prompt": "a hunched emaciated ghoul with grey rotting skin and clawed hands, lunging forward"
+    },
+    {
+      "id": "enemy-archer",
+      "prompt": "a skeletal archer in rusted chainmail drawing a cracked shortbow"
+    },
+    {
+      "id": "enemy-brute",
+      "prompt": "a hulking armored brute wielding a massive chained flail, heavy iron plates scarred by battle"
+    },
+    {
+      "id": "floor-stone",
+      "prompt": "seamless tileable dungeon floor of worn dark stone slabs with faint cracks and moss, viewed from directly above, edge-to-edge texture with no border"
+    },
+    {
+      "id": "prop-torch",
+      "prompt": "a wall-mounted iron torch with a small warm flame, viewed from above"
+    },
+    {
+      "id": "core-crystal",
+      "prompt": "a fist-sized faceted crystal orb glowing faint teal, wrapped in black iron claws, floating game item icon"
+    }
+  ]
+}
