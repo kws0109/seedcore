@@ -86,6 +86,146 @@
       #overlay-hint {
         color: #8f8574;
       }
+      #help {
+        position: fixed;
+        bottom: 12px;
+        left: 16px;
+        z-index: 10;
+        color: #6b6355;
+        font-family: monospace;
+        font-size: 12px;
+        text-shadow: 0 1px 2px #000;
+      }
+      #market {
+        position: fixed;
+        inset: 0;
+        z-index: 30;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(5, 4, 3, 0.78);
+        font-family: monospace;
+      }
+      #market.hidden {
+        display: none;
+      }
+      #market-panel {
+        width: min(920px, 94vw);
+        max-height: 86vh;
+        overflow-y: auto;
+        padding: 20px 26px;
+        color: #d8cdb8;
+        background: rgba(16, 13, 10, 0.97);
+        border: 2px solid #4a423a;
+        box-shadow: 0 0 0 1px #14100c, 0 12px 40px rgba(0, 0, 0, 0.8);
+      }
+      #market-header {
+        display: flex;
+        align-items: baseline;
+        gap: 16px;
+        border-bottom: 1px solid #2e2820;
+        padding-bottom: 10px;
+      }
+      #market-header h1 {
+        margin: 0;
+        font-size: 18px;
+        letter-spacing: 4px;
+        color: #e6d8b8;
+      }
+      #market-gold {
+        color: #c9a95c;
+        font-size: 14px;
+      }
+      #market-header button {
+        margin-left: auto;
+      }
+      #market-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 18px;
+        margin-top: 14px;
+      }
+      #market-grid section:first-child {
+        grid-column: 1 / -1;
+      }
+      #market h2 {
+        margin: 8px 0;
+        font-size: 13px;
+        letter-spacing: 2px;
+        color: #a89a7e;
+      }
+      #market .row {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 6px 12px;
+        padding: 8px 10px;
+        margin-bottom: 6px;
+        background: rgba(30, 25, 19, 0.6);
+        border: 1px solid #2e2820;
+      }
+      #market .core-title {
+        font-size: 13px;
+        min-width: 220px;
+      }
+      #market .core-items {
+        flex: 1;
+        font-size: 12px;
+        min-width: 200px;
+      }
+      #market .actions {
+        margin-left: auto;
+        display: flex;
+        gap: 6px;
+      }
+      #market button,
+      #code-entry button {
+        font-family: monospace;
+        font-size: 12px;
+        color: #d8cdb8;
+        background: #2a2119;
+        border: 1px solid #4a423a;
+        padding: 5px 10px;
+        cursor: pointer;
+      }
+      #market button:hover:not(:disabled) {
+        background: #3a2e21;
+      }
+      #market button:disabled {
+        opacity: 0.4;
+        cursor: default;
+      }
+      #code-entry {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        margin-top: 6px;
+      }
+      #code-input {
+        font-family: monospace;
+        font-size: 12px;
+        color: #d8cdb8;
+        background: #14100c;
+        border: 1px solid #4a423a;
+        padding: 6px 8px;
+        width: 220px;
+      }
+      #code-msg {
+        font-size: 12px;
+        color: #8f8574;
+      }
+      .dim {
+        color: #8f8574;
+      }
+      .r-common {
+        color: #cfc4a8;
+      }
+      .r-rare {
+        color: #6a9ad0;
+      }
+      .r-epic {
+        color: #b060d0;
+      }
     </style>
   </head>
   <body>
@@ -101,6 +241,35 @@
         <p id="overlay-hint"></p>
       </div>
     </div>
+    <div id="market" class="hidden">
+      <div id="market-panel">
+        <div id="market-header">
+          <h1>던전 시장</h1>
+          <span id="market-gold">0 G</span>
+          <button id="market-close">닫기 (M)</button>
+        </div>
+        <div id="market-grid">
+          <section>
+            <h2>보유 코어</h2>
+            <div id="cores-list"></div>
+            <div id="code-entry">
+              <input id="code-input" placeholder="SC1-XXXXXXXX-XXXX" spellcheck="false" />
+              <button id="code-add">코드 입력</button>
+              <span id="code-msg"></span>
+            </div>
+          </section>
+          <section>
+            <h2>시장 재고</h2>
+            <div id="stock-list"></div>
+          </section>
+          <section>
+            <h2>대장간 강화</h2>
+            <div id="upgrade-list"></div>
+          </section>
+        </div>
+      </div>
+    </div>
+    <div id="help">WASD 이동 · 클릭 공격 · 스페이스 대시 · M 시장</div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

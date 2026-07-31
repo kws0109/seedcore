@@ -1,9 +1,12 @@
 import { Input } from './engine/input';
 import { startLoop } from './engine/loop';
+import { appraise, decodeCore, encodeCore } from './game/core';
 import { BIOME_NAMES, generateDungeon } from './game/dungeon';
 import { step } from './game/sim';
 import { createStateFromDungeon, type GameState } from './game/state';
 import { T } from './game/tuning';
+import { loadMeta, saveMeta, type MetaState } from './meta/save';
+import { buyPrice, MarketPanel, upgradeCost } from './ui/market';
 import { Renderer } from './render/renderer';
 
 async function boot(): Promise<void> {
@@ -21,30 +24,46 @@ async function boot(): Promise<void> {
   const overlayBody = document.getElementById('overlay-body') as HTMLParagraphElement;
   const overlayHint = document.getElementById('overlay-hint') as HTMLParagraphElement;
 
+  const meta: MetaState = loadMeta();
   let seed = 20260810;
+  let fromCore = false; // 코어로 연 던전은 재코어화 불가
+  let cored = false; // 이번 던전을 이미 응축했는가
+  let overlayVisible = false;
   let state: GameState;
-  let paused = false;
 
-  const enterDungeon = (newSeed: number): void => {
-    seed = newSeed;
-    const dungeon = generateDungeon(seed);
-    const carried = state ? { gold: state.gold, items: state.items } : null;
-    state = createStateFromDungeon(dungeon);
-    if (carried) {
-      // 골드·아이템은 런을 넘어 유지 (아이템 효과 재적용)
-      state.gold = carried.gold;
-      for (const item of carried.items) {
-        state.items.push(item);
-        if (item.stat === 'atk') state.player.atkMul += T.itemAtk[item.rarity];
-        else if (item.stat === 'speed') state.player.speedMul += T.itemSpeed[item.rarity];
-        else state.player.maxHp += T.itemHp[item.rarity];
-      }
-      state.player.hp = state.player.maxHp;
+  // 런 중 주운 골드·장비를 메타에 반영하고 저장
+  const syncMeta = (): void => {
+    meta.gold = state.gold;
+    meta.items = state.items;
+    saveMeta(meta);
+  };
+
+  const applyMetaToPlayer = (): void => {
+    const p = state.player;
+    p.atkMul = 1 + 0.05 * meta.upgrades.atk;
+    p.speedMul = 1 + 0.03 * meta.upgrades.speed;
+    p.maxHp = T.playerMaxHp + 10 * meta.upgrades.hp;
+    for (const item of meta.items) {
+      if (item.stat === 'atk') p.atkMul += T.itemAtk[item.rarity];
+      else if (item.stat === 'speed') p.speedMul += T.itemSpeed[item.rarity];
+      else p.maxHp += T.itemHp[item.rarity];
     }
+    p.hp = p.maxHp;
+  };
+
+  const enterDungeon = (newSeed: number, viaCore: boolean): void => {
+    seed = newSeed;
+    fromCore = viaCore;
+    cored = false;
+    const dungeon = generateDungeon(seed);
+    state = createStateFromDungeon(dungeon);
+    state.gold = meta.gold;
+    state.items = [...meta.items];
+    applyMetaToPlayer();
     renderer.setDungeon(dungeon);
-    infoEl.textContent = `${BIOME_NAMES[dungeon.biome]} · 시드 ${seed}`;
-    overlay.classList.add('hidden');
-    paused = false;
+    infoEl.textContent = `${BIOME_NAMES[dungeon.biome]} · 시드 ${seed}${viaCore ? ' · 코어 던전' : ''}`;
+    hideOverlay();
+    market.close();
   };
 
   const showOverlay = (title: string, body: string, hint: string): void => {
@@ -52,7 +71,12 @@ async function boot(): Promise<void> {
     overlayBody.textContent = body;
     overlayHint.textContent = hint;
     overlay.classList.remove('hidden');
-    paused = true;
+    overlayVisible = true;
+  };
+
+  const hideOverlay = (): void => {
+    overlay.classList.add('hidden');
+    overlayVisible = false;
   };
 
   const itemSummary = (): string => {
@@ -62,16 +86,92 @@ async function boot(): Promise<void> {
     return `장비 — 일반 ${counts.common} · 희귀 ${counts.rare} · 영웅 ${counts.epic}`;
   };
 
+  const clearHint = (): string =>
+    fromCore
+      ? 'R — 다음 던전으로 (코어 던전은 재응축 불가)'
+      : cored
+        ? 'R — 다음 던전으로'
+        : 'C — 던전을 코어로 응축 · R — 다음 던전으로';
+
+  const market = new MarketPanel({
+    getMeta: () => meta,
+    useCore: (coreSeed) => {
+      meta.cores = meta.cores.filter((s) => s !== coreSeed); // 입장 시 1회 소모
+      meta.gold = state.gold;
+      meta.items = state.items;
+      saveMeta(meta);
+      enterDungeon(coreSeed, true);
+    },
+    sellCore: (coreSeed) => {
+      meta.cores = meta.cores.filter((s) => s !== coreSeed);
+      meta.gold += appraise(coreSeed);
+      state.gold = meta.gold;
+      saveMeta(meta);
+    },
+    buyCore: (coreSeed) => {
+      const price = buyPrice(coreSeed);
+      if (meta.gold < price || meta.cores.includes(coreSeed)) return false;
+      meta.gold -= price;
+      meta.cores.push(coreSeed);
+      state.gold = meta.gold;
+      saveMeta(meta);
+      return true;
+    },
+    addCoreFromCode: (code) => {
+      const decoded = decodeCore(code);
+      if (decoded === null) return 'invalid';
+      if (meta.cores.includes(decoded)) return 'duplicate';
+      meta.cores.push(decoded);
+      saveMeta(meta);
+      return 'ok';
+    },
+    buyUpgrade: (kind) => {
+      const cost = upgradeCost(meta.upgrades[kind]);
+      if (meta.gold < cost) return false;
+      meta.gold -= cost;
+      meta.upgrades[kind] += 1;
+      state.gold = meta.gold;
+      const keepHpRatio = state.player.hp / state.player.maxHp;
+      applyMetaToPlayer();
+      state.player.hp = Math.max(1, Math.round(state.player.maxHp * keepHpRatio));
+      saveMeta(meta);
+      return true;
+    },
+    copyCode: (coreSeed) => {
+      const code = encodeCore(coreSeed);
+      navigator.clipboard?.writeText(code).catch(() => window.prompt('코어 코드', code));
+    },
+  });
+  market.onToggle = () => {
+    /* paused는 아래 게이트에서 매 틱 계산 */
+  };
+
   window.addEventListener('keydown', (e) => {
-    if (e.code !== 'KeyR' || !paused) return;
-    if (state.dead) enterDungeon(seed); // 같은 시드 재도전 — 같은 던전이 그대로 재생성된다
-    else enterDungeon(seed + 1);
+    if (e.code === 'KeyM' && !state.dead) {
+      market.toggle();
+      return;
+    }
+    if (e.code === 'KeyC' && overlayVisible && state.cleared && !fromCore && !cored) {
+      cored = true;
+      meta.cores.push(seed);
+      saveMeta(meta);
+      showOverlay(
+        '던전 정복',
+        `코어로 응축했다 — ${encodeCore(seed)}`,
+        clearHint(),
+      );
+      return;
+    }
+    if (e.code !== 'KeyR' || !overlayVisible) return;
+    if (state.dead) enterDungeon(seed, fromCore); // 같은 시드 재도전 — 같은 던전이 그대로 재생성된다
+    else enterDungeon(seed + 1, false);
   });
 
-  enterDungeon(seed);
+  enterDungeon(seed, false);
 
   startLoop(
     () => {
+      const paused = overlayVisible || market.isOpen;
       if (paused) return;
       step(state, input.sample(renderer.toWorld));
       for (const ev of state.events) {
@@ -100,15 +200,14 @@ async function boot(): Promise<void> {
             break;
           case 'dropPicked':
             fx.burst(ev.pos.x, ev.pos.y, 0xc9a95c, 5, 30);
+            syncMeta();
             break;
           case 'dungeonCleared':
-            showOverlay(
-              '던전 정복',
-              `${state.gold} G 보유 · ${itemSummary()}`,
-              'R — 다음 던전으로',
-            );
+            syncMeta();
+            showOverlay('던전 정복', `${state.gold} G 보유 · ${itemSummary()}`, clearHint());
             break;
           case 'playerDied':
+            syncMeta();
             showOverlay('전사', '어둠이 그대를 삼켰다.', 'R — 같은 던전에 재도전');
             break;
         }
@@ -125,7 +224,11 @@ async function boot(): Promise<void> {
       get state() {
         return state;
       },
+      get meta() {
+        return meta;
+      },
       renderer,
+      market,
       enterDungeon,
     };
   }
