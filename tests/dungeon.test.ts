@@ -26,8 +26,23 @@ describe('던전 생성', () => {
     }
   });
 
+  it('방마다 실제 바닥 타일이 6개 이상이다 (블롭 캐브 하한)', () => {
+    for (const seed of [1, 42, 777, 9999]) {
+      const d = generateDungeon(seed);
+      for (const r of d.rooms) {
+        let floors = 0;
+        for (let ty = r.y; ty < r.y + r.h; ty++) {
+          for (let tx = r.x; tx < r.x + r.w; tx++) {
+            if (!isWall(d, tx, ty)) floors++;
+          }
+        }
+        expect(floors).toBeGreaterThanOrEqual(6);
+      }
+    }
+  });
+
   it('모든 바닥 타일은 시작점에서 도달 가능하다 (플러드필)', () => {
-    for (const seed of [1, 42, 777, 9999, 31337]) {
+    for (const seed of [1, 42, 777, 9999, 31337, 2, 3, 55555]) {
       const d = generateDungeon(seed);
       const sx = Math.floor(d.spawn.x / TILE);
       const sy = Math.floor(d.spawn.y / TILE);
