@@ -1,6 +1,7 @@
 import type { Vec } from '../engine/math';
 import { T } from './tuning';
 import ENEMIES from '../data/enemies.json';
+import type { Dungeon, ItemStat, Rarity, RolledDrop } from './dungeon';
 
 export interface InputFrame {
   moveX: number; // -1..1
@@ -38,6 +39,28 @@ export interface Enemy {
   touchDamage: number;
   kbResist: number; // 넉백 배율 (1=그대로, 0.3=저항)
   shootTimer: number; // archer 전용 발사 쿨다운
+  drop: RolledDrop | null; // 던전 생성 시 사전 롤링된 드롭
+}
+
+export interface Projectile {
+  id: number;
+  pos: Vec;
+  vel: Vec;
+  radius: number;
+  damage: number;
+  ttl: number; // 남은 수명(초)
+}
+
+export interface DropEntity {
+  id: number;
+  pos: Vec;
+  gold: number;
+  item: RolledDrop['item'];
+}
+
+export interface OwnedItem {
+  rarity: Rarity;
+  stat: ItemStat;
 }
 
 export type GameEvent =
@@ -51,6 +74,12 @@ export interface GameState {
   tick: number;
   player: Player;
   enemies: Enemy[];
+  projectiles: Projectile[];
+  drops: DropEntity[];
+  gold: number;
+  items: OwnedItem[];
+  cleared: boolean;
+  dungeon: Dungeon | null; // null이면 벽 없는 무한 평면 (테스트용)
   hitstop: number; // 남은 정지 시간(초)
   events: GameEvent[]; // 이번 틱에 발생한 렌더 큐. 매 step 초기화.
 }
@@ -84,6 +113,7 @@ export function createEnemy(id: number, pos: Vec, kind: EnemyKind = 'ghoul'): En
     touchDamage: data.touchDamage,
     kbResist: data.kbResist,
     shootTimer: 0,
+    drop: null,
   };
 }
 
@@ -92,9 +122,27 @@ export function createState(): GameState {
     tick: 0,
     player: createPlayer({ x: 0, y: 0 }),
     enemies: [],
+    projectiles: [],
+    drops: [],
+    gold: 0,
+    items: [],
+    cleared: false,
+    dungeon: null,
     hitstop: 0,
     events: [],
   };
+}
+
+export function createStateFromDungeon(d: Dungeon): GameState {
+  const s = createState();
+  s.dungeon = d;
+  s.player = createPlayer(d.spawn);
+  d.enemies.forEach((spawn, i) => {
+    const e = createEnemy(i, spawn.pos, spawn.kind);
+    e.drop = spawn.drop;
+    s.enemies.push(e);
+  });
+  return s;
 }
 
 export function idleInput(): InputFrame {

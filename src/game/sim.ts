@@ -1,8 +1,32 @@
-import { angleDiff, angleTo, circlesOverlap, norm } from '../engine/math';
+import { angleDiff, angleTo, circlesOverlap, norm, type Vec } from '../engine/math';
+import { isWall, TILE, type Dungeon } from './dungeon';
 import type { GameState, InputFrame } from './state';
 import { T } from './tuning';
 
 export const DT = 1 / 60;
+
+// 한 축씩 이동시키고 벽 타일에 클램프한다 (축 분리 → 벽 타기 이동이 자연스럽다).
+function moveAxis(d: Dungeon | null, pos: Vec, r: number, dx: number, dy: number): void {
+  pos.x += dx;
+  pos.y += dy;
+  if (!d) return;
+  const minTx = Math.floor((pos.x - r) / TILE);
+  const maxTx = Math.floor((pos.x + r) / TILE);
+  const minTy = Math.floor((pos.y - r) / TILE);
+  const maxTy = Math.floor((pos.y + r) / TILE);
+  for (let ty = minTy; ty <= maxTy; ty++) {
+    for (let tx = minTx; tx <= maxTx; tx++) {
+      if (!isWall(d, tx, ty)) continue;
+      const cx = Math.max(tx * TILE, Math.min(pos.x, (tx + 1) * TILE));
+      const cy = Math.max(ty * TILE, Math.min(pos.y, (ty + 1) * TILE));
+      if ((pos.x - cx) ** 2 + (pos.y - cy) ** 2 >= r * r) continue;
+      if (dx > 0) pos.x = tx * TILE - r;
+      else if (dx < 0) pos.x = (tx + 1) * TILE + r;
+      if (dy > 0) pos.y = ty * TILE - r;
+      else if (dy < 0) pos.y = (ty + 1) * TILE + r;
+    }
+  }
+}
 
 export function step(s: GameState, inp: InputFrame): void {
   s.events = [];
@@ -44,8 +68,8 @@ function stepMove(s: GameState, inp: InputFrame): void {
     const dir = norm({ x: inp.moveX, y: inp.moveY });
     p.vel = { x: dir.x * T.playerSpeed, y: dir.y * T.playerSpeed };
   }
-  p.pos.x += p.vel.x * DT;
-  p.pos.y += p.vel.y * DT;
+  moveAxis(s.dungeon, p.pos, p.radius, p.vel.x * DT, 0);
+  moveAxis(s.dungeon, p.pos, p.radius, 0, p.vel.y * DT);
   p.facing = angleTo(p.pos, { x: inp.aimX, y: inp.aimY });
 }
 
@@ -79,8 +103,8 @@ function stepEnemies(s: GameState): void {
     e.vel.x *= 0.85;
     e.vel.y *= 0.85;
     const dir = norm({ x: p.pos.x - e.pos.x, y: p.pos.y - e.pos.y });
-    e.pos.x += (e.vel.x + dir.x * e.speed) * DT;
-    e.pos.y += (e.vel.y + dir.y * e.speed) * DT;
+    moveAxis(s.dungeon, e.pos, e.radius, (e.vel.x + dir.x * e.speed) * DT, 0);
+    moveAxis(s.dungeon, e.pos, e.radius, 0, (e.vel.y + dir.y * e.speed) * DT);
     const canHit = p.invulnTimer === 0 && p.dashTimer === 0;
     if (canHit && circlesOverlap(p.pos, p.radius, e.pos, e.radius)) {
       p.hp -= e.touchDamage;
