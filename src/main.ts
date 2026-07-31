@@ -1,32 +1,44 @@
-import { Application, Graphics, Text } from 'pixi.js';
+import { Input } from './engine/input';
+import { startLoop } from './engine/loop';
+import { mulberry32 } from './engine/rng';
+import { step } from './game/sim';
+import { createEnemy, createState } from './game/state';
+import { Renderer } from './render/renderer';
 
-// 루프 세팅 검증용 최소 씬. 본 구현이 시작되면 로직/렌더 분리 구조로 대체된다.
 async function boot(): Promise<void> {
-  const app = new Application();
-  await app.init({
-    background: '#08080c',
-    resizeTo: window,
-    antialias: true,
-  });
-  document.body.appendChild(app.canvas);
+  const renderer = new Renderer();
+  await renderer.init();
 
-  const core = new Graphics().circle(0, 0, 48).stroke({ color: 0x46f0c8, width: 3 });
-  core.position.set(window.innerWidth / 2, window.innerHeight / 2);
-  app.stage.addChild(core);
+  const input = new Input();
+  input.attach(document.body);
 
-  const title = new Text({
-    text: 'SEEDCORE',
-    style: { fill: 0xe8fff8, fontSize: 28, letterSpacing: 14, fontFamily: 'monospace' },
-  });
-  title.anchor.set(0.5);
-  title.position.set(window.innerWidth / 2, window.innerHeight / 2 + 110);
-  app.stage.addChild(title);
+  const state = createState();
+  // 프로토타입용 시드 스폰. 던전 생성 단계에서 대체된다.
+  const rng = mulberry32(2026);
+  let nextEnemyId = 0;
+  const spawnEnemy = (): void => {
+    const angle = rng() * Math.PI * 2;
+    const dist = 300 + rng() * 200;
+    state.enemies.push(
+      createEnemy(nextEnemyId++, {
+        x: state.player.pos.x + Math.cos(angle) * dist,
+        y: state.player.pos.y + Math.sin(angle) * dist,
+      }),
+    );
+  };
+  for (let i = 0; i < 5; i++) spawnEnemy();
 
-  app.ticker.add((ticker) => {
-    core.rotation += 0.01 * ticker.deltaTime;
-    const pulse = 1 + 0.06 * Math.sin(performance.now() / 400);
-    core.scale.set(pulse);
-  });
+  startLoop(
+    () => {
+      step(state, input.sample(renderer.toWorld));
+      while (state.enemies.length < 5) spawnEnemy(); // 프로토타입: 상시 5마리 유지
+      for (const ev of state.events) {
+        if (ev.type === 'enemyHit') renderer.shake = Math.max(renderer.shake, 6);
+        if (ev.type === 'playerHit') renderer.shake = Math.max(renderer.shake, 12);
+      }
+    },
+    (dtMs) => renderer.draw(state, dtMs),
+  );
 }
 
 void boot();
