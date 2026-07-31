@@ -1,13 +1,21 @@
 import { Input } from './engine/input';
 import { startLoop } from './engine/loop';
-import { appraise, decodeCore, encodeCore } from './game/core';
+import { appraise, decodeCore, encodeCore, rollMarketSeed } from './game/core';
 import { BIOME_NAMES, generateDungeon } from './game/dungeon';
+import { createHideout, HIDEOUT_STATIONS, PORTAL_POS, type StationKind } from './game/hideout';
 import { step } from './game/sim';
 import { createStateFromDungeon, type GameState } from './game/state';
 import { T } from './game/tuning';
 import { loadMeta, saveMeta, type MetaState } from './meta/save';
-import { buyPrice, MarketPanel, upgradeCost } from './ui/market';
+import { buyPrice, MarketPanel, upgradeCost, type PanelMode } from './ui/market';
 import { Renderer } from './render/renderer';
+
+const STATION_TO_MODE: Record<StationKind, PanelMode> = {
+  device: 'device',
+  merchant: 'merchant',
+  storage: 'storage',
+  anvil: 'anvil',
+};
 
 async function boot(): Promise<void> {
   const renderer = new Renderer();
@@ -19,16 +27,20 @@ async function boot(): Promise<void> {
   const hpfill = document.getElementById('hpfill') as HTMLDivElement;
   const goldEl = document.getElementById('gold') as HTMLDivElement;
   const infoEl = document.getElementById('info') as HTMLDivElement;
+  const promptEl = document.getElementById('prompt') as HTMLDivElement;
   const overlay = document.getElementById('overlay') as HTMLDivElement;
   const overlayTitle = document.getElementById('overlay-title') as HTMLHeadingElement;
   const overlayBody = document.getElementById('overlay-body') as HTMLParagraphElement;
   const overlayHint = document.getElementById('overlay-hint') as HTMLParagraphElement;
 
   const meta: MetaState = loadMeta();
-  let seed = 20260810;
-  let fromCore = false; // 코어로 연 던전은 재코어화 불가
+  let mode: 'hub' | 'dungeon' = 'hub';
+  let seed = 0;
+  let fromCore = false; // 코어로 연 던전은 재응축 불가
   let cored = false; // 이번 던전을 이미 응축했는가
   let overlayVisible = false;
+  let pendingPortal: { seed: number; viaCore: boolean } | null = null;
+  let nearStation: StationKind | null = null;
   let state: GameState;
 
   // 런 중 주운 골드·장비를 메타에 반영하고 저장
@@ -51,21 +63,6 @@ async function boot(): Promise<void> {
     p.hp = p.maxHp;
   };
 
-  const enterDungeon = (newSeed: number, viaCore: boolean): void => {
-    seed = newSeed;
-    fromCore = viaCore;
-    cored = false;
-    const dungeon = generateDungeon(seed);
-    state = createStateFromDungeon(dungeon);
-    state.gold = meta.gold;
-    state.items = [...meta.items];
-    applyMetaToPlayer();
-    renderer.setDungeon(dungeon);
-    infoEl.textContent = `${BIOME_NAMES[dungeon.biome]} · 시드 ${seed}${viaCore ? ' · 코어 던전' : ''}`;
-    hideOverlay();
-    market.close();
-  };
-
   const showOverlay = (title: string, body: string, hint: string): void => {
     overlayTitle.textContent = title;
     overlayBody.textContent = body;
@@ -79,6 +76,41 @@ async function boot(): Promise<void> {
     overlayVisible = false;
   };
 
+  const enterHideout = (): void => {
+    mode = 'hub';
+    pendingPortal = null;
+    const hideout = createHideout();
+    state = createStateFromDungeon(hideout);
+    state.gold = meta.gold;
+    state.items = [...meta.items];
+    applyMetaToPlayer();
+    renderer.setDungeon(hideout);
+    renderer.setProps(HIDEOUT_STATIONS.map((s) => ({ texKey: s.texKey, pos: s.pos })));
+    renderer.setPortal(null);
+    infoEl.textContent = '은신처';
+    hideOverlay();
+    market.close();
+  };
+
+  const enterDungeon = (newSeed: number, viaCore: boolean): void => {
+    mode = 'dungeon';
+    seed = newSeed;
+    fromCore = viaCore;
+    cored = false;
+    pendingPortal = null;
+    const dungeon = generateDungeon(seed);
+    state = createStateFromDungeon(dungeon);
+    state.gold = meta.gold;
+    state.items = [...meta.items];
+    applyMetaToPlayer();
+    renderer.setDungeon(dungeon);
+    renderer.setProps([]);
+    renderer.setPortal(null);
+    infoEl.textContent = `${BIOME_NAMES[dungeon.biome]} · 시드 ${seed}${viaCore ? ' · 코어 던전' : ''}`;
+    hideOverlay();
+    market.close();
+  };
+
   const itemSummary = (): string => {
     if (state.items.length === 0) return '획득한 장비 없음';
     const counts = { common: 0, rare: 0, epic: 0 };
@@ -88,19 +120,26 @@ async function boot(): Promise<void> {
 
   const clearHint = (): string =>
     fromCore
-      ? 'R — 다음 던전으로 (코어 던전은 재응축 불가)'
+      ? 'R — 은신처로 (코어 던전은 재응축 불가)'
       : cored
-        ? 'R — 다음 던전으로'
-        : 'C — 던전을 코어로 응축 · R — 다음 던전으로';
+        ? 'R — 은신처로'
+        : 'C — 던전을 코어로 응축 · R — 은신처로';
+
+  const openPortal = (portalSeed: number, viaCore: boolean): void => {
+    pendingPortal = { seed: portalSeed, viaCore };
+    renderer.setPortal(PORTAL_POS);
+    market.close();
+  };
 
   const market = new MarketPanel({
     getMeta: () => meta,
-    useCore: (coreSeed) => {
-      meta.cores = meta.cores.filter((s) => s !== coreSeed); // 입장 시 1회 소모
-      meta.gold = state.gold;
-      meta.items = state.items;
+    insertCore: (coreSeed) => {
+      meta.cores = meta.cores.filter((s) => s !== coreSeed); // 삽입 즉시 소모
       saveMeta(meta);
-      enterDungeon(coreSeed, true);
+      openPortal(coreSeed, true);
+    },
+    explore: () => {
+      openPortal(rollMarketSeed(), false);
     },
     sellCore: (coreSeed) => {
       meta.cores = meta.cores.filter((s) => s !== coreSeed);
@@ -142,38 +181,66 @@ async function boot(): Promise<void> {
       navigator.clipboard?.writeText(code).catch(() => window.prompt('코어 코드', code));
     },
   });
-  market.onToggle = () => {
-    /* paused는 아래 게이트에서 매 틱 계산 */
-  };
 
   window.addEventListener('keydown', (e) => {
-    if (e.code === 'KeyM' && !state.dead) {
-      market.toggle();
+    if (e.code === 'KeyE' && mode === 'hub' && nearStation && !market.isOpen) {
+      market.open(STATION_TO_MODE[nearStation]);
+      return;
+    }
+    if (e.code === 'KeyM' && mode === 'hub') {
+      if (market.isOpen) market.close();
+      else market.open('merchant');
+      return;
+    }
+    if (e.code === 'Escape' && market.isOpen) {
+      market.close();
       return;
     }
     if (e.code === 'KeyC' && overlayVisible && state.cleared && !fromCore && !cored) {
       cored = true;
       meta.cores.push(seed);
       saveMeta(meta);
-      showOverlay(
-        '던전 정복',
-        `코어로 응축했다 — ${encodeCore(seed)}`,
-        clearHint(),
-      );
+      showOverlay('던전 정복', `코어로 응축했다 — ${encodeCore(seed)}`, clearHint());
+      return;
+    }
+    if (e.code === 'KeyH' && overlayVisible && state.dead) {
+      enterHideout();
       return;
     }
     if (e.code !== 'KeyR' || !overlayVisible) return;
     if (state.dead) enterDungeon(seed, fromCore); // 같은 시드 재도전 — 같은 던전이 그대로 재생성된다
-    else enterDungeon(seed + 1, false);
+    else enterHideout();
   });
 
-  enterDungeon(seed, false);
+  enterHideout();
 
   startLoop(
     () => {
       const paused = overlayVisible || market.isOpen;
       if (paused) return;
       step(state, input.sample(renderer.toWorld));
+
+      if (mode === 'hub') {
+        // 스테이션 근접 판정 + 포탈 진입
+        const p = state.player.pos;
+        nearStation = null;
+        for (const st of HIDEOUT_STATIONS) {
+          const d = Math.hypot(st.pos.x - p.x, st.pos.y - p.y);
+          if (d < 58) {
+            nearStation = st.kind;
+            promptEl.textContent = `E — ${st.label}`;
+            break;
+          }
+        }
+        promptEl.classList.toggle('hidden', nearStation === null);
+        if (pendingPortal && Math.hypot(PORTAL_POS.x - p.x, PORTAL_POS.y - p.y) < 30) {
+          enterDungeon(pendingPortal.seed, pendingPortal.viaCore);
+          return;
+        }
+      } else {
+        promptEl.classList.add('hidden');
+      }
+
       for (const ev of state.events) {
         const fx = renderer.effects;
         const p = state.player;
@@ -208,7 +275,7 @@ async function boot(): Promise<void> {
             break;
           case 'playerDied':
             syncMeta();
-            showOverlay('전사', '어둠이 그대를 삼켰다.', 'R — 같은 던전에 재도전');
+            showOverlay('전사', '어둠이 그대를 삼켰다.', 'R — 재도전 · H — 은신처로');
             break;
         }
       }
@@ -227,9 +294,16 @@ async function boot(): Promise<void> {
       get meta() {
         return meta;
       },
+      get mode() {
+        return mode;
+      },
+      get pendingPortal() {
+        return pendingPortal;
+      },
       renderer,
       market,
       enterDungeon,
+      enterHideout,
     };
   }
 }

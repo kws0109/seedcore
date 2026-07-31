@@ -109,6 +109,26 @@
       #market.hidden {
         display: none;
       }
+      #market section.hidden,
+      #code-entry.hidden {
+        display: none;
+      }
+      #prompt {
+        position: fixed;
+        bottom: 64px;
+        left: 50%;
+        transform: translateX(-50%);
+        z-index: 10;
+        padding: 6px 14px;
+        color: #e6d8b8;
+        background: rgba(16, 13, 10, 0.85);
+        border: 1px solid #4a423a;
+        font-family: monospace;
+        font-size: 13px;
+      }
+      #prompt.hidden {
+        display: none;
+      }
       #market-panel {
         width: min(920px, 94vw);
         max-height: 86vh;
@@ -249,7 +269,7 @@
           <button id="market-close">닫기 (M)</button>
         </div>
         <div id="market-grid">
-          <section>
+          <section id="sec-cores">
             <h2>보유 코어</h2>
             <div id="cores-list"></div>
             <div id="code-entry">
@@ -258,18 +278,19 @@
               <span id="code-msg"></span>
             </div>
           </section>
-          <section>
+          <section id="sec-stock">
             <h2>시장 재고</h2>
             <div id="stock-list"></div>
           </section>
-          <section>
-            <h2>대장간 강화</h2>
+          <section id="sec-upgrade">
+            <h2>강화</h2>
             <div id="upgrade-list"></div>
           </section>
         </div>
       </div>
     </div>
-    <div id="help">WASD 이동 · 클릭 공격 · 스페이스 대시 · M 시장</div>
+    <div id="help">WASD 이동 · 클릭 공격 · 스페이스 대시 · E 상호작용</div>
+    <div id="prompt" class="hidden"></div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
