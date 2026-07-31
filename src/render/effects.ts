@@ -25,7 +25,7 @@ export class Effects {
     this.add(g, 120, (gg, t) => {
       gg.clear();
       gg.arc(0, 0, range * (1.15 - 0.15 * t), -arc, arc).stroke({
-        color: 0xd8fff4,
+        color: 0xe6d8b8, // 뼈·강철 빛 검격
         width: 4 * t,
         alpha: t,
       });
@@ -52,7 +52,7 @@ export class Effects {
     g.position.set(x, y);
     this.add(g, 200, (gg, t) => {
       gg.clear();
-      gg.circle(0, 0, radius).stroke({ color: 0x46f0c8, width: 2, alpha: 0.5 * t });
+      gg.circle(0, 0, radius).stroke({ color: 0xcfc4a8, width: 2, alpha: 0.5 * t });
     });
   }
 

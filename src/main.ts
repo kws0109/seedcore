@@ -43,15 +43,15 @@ async function boot(): Promise<void> {
             fx.slash(p.pos.x, p.pos.y, ev.angle, T.attackRange, T.attackArc);
             break;
           case 'enemyHit':
-            fx.burst(ev.pos.x, ev.pos.y, 0xf05a6e, 6, 40);
+            fx.burst(ev.pos.x, ev.pos.y, 0x8a2424, 6, 40);
             renderer.shake = Math.max(renderer.shake, 6);
             break;
           case 'enemyDied':
-            fx.burst(ev.pos.x, ev.pos.y, 0xffb4c0, 14, 80);
+            fx.burst(ev.pos.x, ev.pos.y, 0xcfc4a8, 14, 80);
             renderer.shake = Math.max(renderer.shake, 10);
             break;
           case 'playerHit':
-            fx.burst(ev.pos.x, ev.pos.y, 0x46f0c8, 10, 60);
+            fx.burst(ev.pos.x, ev.pos.y, 0xa03030, 10, 60);
             renderer.shake = Math.max(renderer.shake, 12);
             break;
           case 'dash':
@@ -63,6 +63,11 @@ async function boot(): Promise<void> {
     },
     (dtMs) => renderer.draw(state, dtMs),
   );
+
+  if (import.meta.env.DEV) {
+    // 개발 전용 디버그 훅: 브라우저 자동 검증에서 부트 완료·상태 확인용
+    (window as unknown as Record<string, unknown>).__seedcore = { state, renderer };
+  }
 }
 
 void boot();
