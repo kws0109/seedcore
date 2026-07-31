@@ -31,7 +31,9 @@ if (!dry && !apiKey) {
 await mkdir(manifest.output, { recursive: true });
 
 for (const asset of targets) {
-  const prompt = `${asset.prompt}, ${manifest.style}`;
+  // styleKey가 있으면 해당 대체 스타일 템플릿 사용 (예: 바닥 텍스처는 isolated/transparent 문구 금지)
+  const style = asset.styleKey ? manifest.styles[asset.styleKey] : manifest.style;
+  const prompt = `${asset.prompt}, ${style}`;
   if (dry) {
     console.log(`--- ${asset.id}\n${prompt}\n`);
     continue;
@@ -48,7 +50,7 @@ for (const asset of targets) {
       prompt,
       size: SIZE,
       quality: QUALITY,
-      background: 'transparent',
+      background: asset.opaque ? 'opaque' : 'transparent',
       n: 1,
     }),
   });

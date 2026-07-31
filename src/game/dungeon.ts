@@ -5,10 +5,31 @@ import type { EnemyKind } from './state';
 export const TILE = 64;
 
 const GRID = 48; // 타일 단위 던전 크기
-const ROOM_MIN = 5;
-const ROOM_MAX = 9;
 const ROOMS_MIN = 7;
 const ROOMS_MAX = 9;
+
+export type Biome = 'crypt' | 'cavern' | 'abyss';
+export const BIOMES: readonly Biome[] = ['crypt', 'cavern', 'abyss'];
+export const BIOME_NAMES: Record<Biome, string> = {
+  crypt: '지하묘지',
+  cavern: '지하동굴',
+  abyss: '해저동굴',
+};
+
+interface BiomePreset extends CarveParams {
+  roomMin: number; // 방 한 변 크기(타일)
+  roomMax: number;
+  archerChance: number;
+}
+
+const BIOME_PRESETS: Record<Biome, BiomePreset> = {
+  // 각진 방·곧은 복도 — 사람이 지은 묘지
+  crypt: { roundness: 0.15, noiseAmp: 0.06, corridorJitter: 0.06, roomMin: 5, roomMax: 9, archerChance: 0.4 },
+  // 덩어리 방·구불 복도 — 자연 동굴
+  cavern: { roundness: 0.85, noiseAmp: 0.3, corridorJitter: 0.35, roomMin: 5, roomMax: 9, archerChance: 0.35 },
+  // 크고 개방적·불규칙 — 해저, 원거리 견제 강화
+  abyss: { roundness: 0.9, noiseAmp: 0.35, corridorJitter: 0.2, roomMin: 7, roomMax: 11, archerChance: 0.55 },
+};
 
 export type Rarity = 'common' | 'rare' | 'epic';
 export type ItemStat = 'atk' | 'hp' | 'speed';
@@ -33,6 +54,7 @@ export interface Room {
 
 export interface Dungeon {
   seed: number;
+  biome: Biome;
   w: number;
   h: number;
   tiles: Uint8Array; // 0=벽, 1=바닥
@@ -72,8 +94,6 @@ export interface CarveParams {
   noiseAmp: number; // 방 가장자리 불규칙도
   corridorJitter: number; // 복도가 옆길로 새는 확률
 }
-
-const DEFAULT_CARVE: CarveParams = { roundness: 0.75, noiseAmp: 0.25, corridorJitter: 0.3 };
 
 // 방 블롭 캐브: 타원/사각 혼합 정규화 거리 + 타일별 노이즈.
 // 중심부(dist<0.5)는 노이즈와 무관하게 항상 바닥 → 복도 연결·스폰 안전지대 보장.
@@ -190,6 +210,8 @@ export function generateDungeon(seed: number): Dungeon {
   const rng = mulberry32(deriveSeed(seed, 'layout'));
   const spawnRng = mulberry32(deriveSeed(seed, 'spawn'));
   const lootRng = mulberry32(deriveSeed(seed, 'loot'));
+  const biome = BIOMES[deriveSeed(seed, 'biome') % BIOMES.length];
+  const carve = BIOME_PRESETS[biome];
   const tiles = new Uint8Array(GRID * GRID); // 전부 벽
 
   // 방 배치 (rejection sampling)
@@ -198,8 +220,8 @@ export function generateDungeon(seed: number): Dungeon {
   let attempts = 0;
   while (rooms.length < targetRooms && attempts < 400) {
     attempts++;
-    const w = ROOM_MIN + Math.floor(rng() * (ROOM_MAX - ROOM_MIN + 1));
-    const h = ROOM_MIN + Math.floor(rng() * (ROOM_MAX - ROOM_MIN + 1));
+    const w = carve.roomMin + Math.floor(rng() * (carve.roomMax - carve.roomMin + 1));
+    const h = carve.roomMin + Math.floor(rng() * (carve.roomMax - carve.roomMin + 1));
     const x = 2 + Math.floor(rng() * (GRID - w - 4));
     const y = 2 + Math.floor(rng() * (GRID - h - 4));
     const room: Room = { x, y, w, h };
@@ -207,7 +229,6 @@ export function generateDungeon(seed: number): Dungeon {
     rooms.push(room);
   }
 
-  const carve = DEFAULT_CARVE;
   for (const r of rooms) carveRoomBlob(tiles, r, rng, carve);
   for (let i = 1; i < rooms.length; i++) carveCorridorWalk(tiles, rooms[i - 1], rooms[i], rng, carve);
   // 노이즈 캐브가 만든 고립 바닥을 벽으로 되돌린다 — 도달 가능성의 구조적 보증
@@ -215,6 +236,7 @@ export function generateDungeon(seed: number): Dungeon {
 
   const d: Dungeon = {
     seed,
+    biome,
     w: GRID,
     h: GRID,
     tiles,
@@ -248,7 +270,7 @@ export function generateDungeon(seed: number): Dungeon {
         drop: rollDrop(lootRng, 'ghoul'),
       });
     }
-    if (spawnRng() < 0.4) {
+    if (spawnRng() < carve.archerChance) {
       d.enemies.push({
         kind: 'archer',
         pos: randomFloorPosInRoom(spawnRng, tiles, room),

@@ -1,6 +1,6 @@
 import { Input } from './engine/input';
 import { startLoop } from './engine/loop';
-import { generateDungeon } from './game/dungeon';
+import { BIOME_NAMES, generateDungeon } from './game/dungeon';
 import { step } from './game/sim';
 import { createStateFromDungeon, type GameState } from './game/state';
 import { T } from './game/tuning';
@@ -15,6 +15,7 @@ async function boot(): Promise<void> {
 
   const hpfill = document.getElementById('hpfill') as HTMLDivElement;
   const goldEl = document.getElementById('gold') as HTMLDivElement;
+  const infoEl = document.getElementById('info') as HTMLDivElement;
   const overlay = document.getElementById('overlay') as HTMLDivElement;
   const overlayTitle = document.getElementById('overlay-title') as HTMLHeadingElement;
   const overlayBody = document.getElementById('overlay-body') as HTMLParagraphElement;
@@ -41,6 +42,7 @@ async function boot(): Promise<void> {
       state.player.hp = state.player.maxHp;
     }
     renderer.setDungeon(dungeon);
+    infoEl.textContent = `${BIOME_NAMES[dungeon.biome]} · 시드 ${seed}`;
     overlay.classList.add('hidden');
     paused = false;
   };

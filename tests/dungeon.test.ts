@@ -89,6 +89,13 @@ describe('던전 생성', () => {
     }
   });
 
+  it('바이옴은 시드에서 결정되고, 시드 1~40에서 3종이 모두 등장한다', () => {
+    expect(generateDungeon(777).biome).toBe(generateDungeon(777).biome);
+    const seen = new Set<string>();
+    for (let seed = 1; seed <= 40; seed++) seen.add(generateDungeon(seed).biome);
+    expect(seen.size).toBe(3);
+  });
+
   it('브루트가 정확히 1마리 있고 드롭이 사전 롤링되어 있다', () => {
     const d = generateDungeon(777);
     const brutes = d.enemies.filter((e) => e.kind === 'brute');

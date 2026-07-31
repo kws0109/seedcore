@@ -1,5 +1,5 @@
 import { Application, Assets, Container, Graphics, Sprite, Texture, TilingSprite } from 'pixi.js';
-import { isWall, TILE, type Dungeon } from '../game/dungeon';
+import { isWall, TILE, type Biome, type Dungeon } from '../game/dungeon';
 import type { EnemyKind, GameState } from '../game/state';
 import { Effects } from './effects';
 
@@ -13,9 +13,78 @@ const TEXTURES = {
   archer: 'enemy-archer',
   brute: 'enemy-brute',
   floor: 'floor-stone',
+  floorCave: 'floor-cave',
+  floorAbyss: 'floor-abyss',
   torch: 'prop-torch',
+  mushroom: 'prop-mushroom',
+  coral: 'prop-coral',
   core: 'core-crystal',
 } as const;
+
+// 바이옴별 팔레트·텍스처. 지형 프리셋은 dungeon.ts, 시각 연출은 여기.
+interface BiomeVisual {
+  floorKey: 'floor' | 'floorCave' | 'floorAbyss';
+  floorTint: number;
+  wallFill: number;
+  wallHighlight: number;
+  propKey: 'torch' | 'mushroom' | 'coral';
+  lightStops: Array<[number, string]>; // 플레이어 광원
+  glowStops: Array<[number, string]>; // 소품 광원
+}
+
+const BIOME_VISUALS: Record<Biome, BiomeVisual> = {
+  crypt: {
+    floorKey: 'floor',
+    floorTint: 0x9a938a,
+    wallFill: 0x1a1512,
+    wallHighlight: 0x322a20,
+    propKey: 'torch',
+    lightStops: [
+      [0, 'rgba(255,180,90,0.32)'],
+      [0.5, 'rgba(255,150,70,0.12)'],
+      [1, 'rgba(0,0,0,0)'],
+    ],
+    glowStops: [
+      [0, 'rgba(255,170,80,0.35)'],
+      [0.6, 'rgba(200,110,50,0.1)'],
+      [1, 'rgba(0,0,0,0)'],
+    ],
+  },
+  cavern: {
+    floorKey: 'floorCave',
+    floorTint: 0x8fa094,
+    wallFill: 0x131711,
+    wallHighlight: 0x27301f,
+    propKey: 'mushroom',
+    lightStops: [
+      [0, 'rgba(170,240,200,0.26)'],
+      [0.5, 'rgba(120,200,160,0.1)'],
+      [1, 'rgba(0,0,0,0)'],
+    ],
+    glowStops: [
+      [0, 'rgba(140,240,200,0.32)'],
+      [0.6, 'rgba(80,180,140,0.1)'],
+      [1, 'rgba(0,0,0,0)'],
+    ],
+  },
+  abyss: {
+    floorKey: 'floorAbyss',
+    floorTint: 0x8a97a8,
+    wallFill: 0x0e141c,
+    wallHighlight: 0x223040,
+    propKey: 'coral',
+    lightStops: [
+      [0, 'rgba(110,180,240,0.28)'],
+      [0.5, 'rgba(70,140,210,0.1)'],
+      [1, 'rgba(0,0,0,0)'],
+    ],
+    glowStops: [
+      [0, 'rgba(90,180,255,0.32)'],
+      [0.6, 'rgba(50,120,200,0.1)'],
+      [1, 'rgba(0,0,0,0)'],
+    ],
+  },
+};
 
 // 캔버스로 방사형 그라데이션 텍스처를 만든다 (광원·비네트용).
 function radialTexture(size: number, stops: Array<[number, string]>): Texture {
@@ -123,8 +192,20 @@ export class Renderer {
     y: sy - this.world.position.y,
   });
 
-  // 던전 교체 시 정적 지형·횃불 재구축, 엔티티 스프라이트 초기화
+  private lightTexCache = new Map<Biome, Texture>();
+  private glowTexCache = new Map<Biome, Texture>();
+
+  // 던전 교체 시 정적 지형·소품·팔레트 재구축, 엔티티 스프라이트 초기화
   setDungeon(d: Dungeon): void {
+    const vis = BIOME_VISUALS[d.biome];
+
+    this.floor.texture = this.textures[vis.floorKey];
+    this.floor.tint = vis.floorTint;
+    if (!this.lightTexCache.has(d.biome)) {
+      this.lightTexCache.set(d.biome, radialTexture(700, vis.lightStops));
+    }
+    this.light.texture = this.lightTexCache.get(d.biome)!;
+
     const g = this.walls;
     g.clear();
     const W = d.w * TILE;
@@ -134,38 +215,36 @@ export class Renderer {
       .rect(-M, H, W + M * 2, M) // 하
       .rect(-M, 0, M, H) // 좌
       .rect(W, 0, M, H) // 우
-      .fill(0x14100d);
+      .fill(0x0c0a08);
     for (let ty = 0; ty < d.h; ty++) {
       for (let tx = 0; tx < d.w; tx++) {
         if (!isWall(d, tx, ty)) continue;
-        g.rect(tx * TILE, ty * TILE, TILE, TILE).fill(0x1a1512);
+        g.rect(tx * TILE, ty * TILE, TILE, TILE).fill(vis.wallFill);
         if (!isWall(d, tx, ty + 1)) {
           // 아래가 바닥이면 벽면 하이라이트
-          g.rect(tx * TILE, ty * TILE + TILE - 5, TILE, 5).fill(0x322a20);
+          g.rect(tx * TILE, ty * TILE + TILE - 5, TILE, 5).fill(vis.wallHighlight);
         }
       }
     }
 
-    this.torchLayer.removeChildren().forEach((c) => c.destroy({ children: true }));
+    this.torchLayer.removeChildren().forEach((c) => c.destroy({ children: false }));
     this.torchGlows = [];
+    if (!this.glowTexCache.has(d.biome)) {
+      this.glowTexCache.set(d.biome, radialTexture(360, vis.glowStops));
+    }
+    const glowTex = this.glowTexCache.get(d.biome)!;
     for (const t of d.torches) {
-      const glow = new Sprite(
-        radialTexture(360, [
-          [0, 'rgba(255,170,80,0.35)'],
-          [0.6, 'rgba(200,110,50,0.1)'],
-          [1, 'rgba(0,0,0,0)'],
-        ]),
-      );
+      const glow = new Sprite(glowTex);
       glow.anchor.set(0.5);
       glow.blendMode = 'add';
       glow.position.set(t.x, t.y + 10);
       this.torchLayer.addChild(glow);
       this.torchGlows.push(glow);
-      const torch = new Sprite(this.textures.torch);
-      torch.anchor.set(0.5, 0.6);
-      torch.scale.set(44 / 256);
-      torch.position.set(t.x, t.y);
-      this.torchLayer.addChild(torch);
+      const prop = new Sprite(this.textures[vis.propKey]);
+      prop.anchor.set(0.5, 0.6);
+      prop.scale.set(44 / 256);
+      prop.position.set(t.x, t.y);
+      this.torchLayer.addChild(prop);
     }
 
     for (const sp of this.enemySprites.values()) sp.destroy();

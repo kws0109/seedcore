@@ -5,7 +5,8 @@ Add-Type -AssemblyName System.Drawing
 $dir = Join-Path $PSScriptRoot "..\public\assets"
 $sizes = @{
   "player-knight" = 256; "enemy-ghoul" = 256; "enemy-archer" = 256; "enemy-brute" = 256;
-  "prop-torch" = 256; "core-crystal" = 256; "floor-stone" = 512
+  "prop-torch" = 256; "core-crystal" = 256; "floor-stone" = 512;
+  "floor-cave" = 512; "floor-abyss" = 512; "prop-mushroom" = 256; "prop-coral" = 256
 }
 
 foreach ($name in $sizes.Keys) {

@@ -1,5 +1,8 @@
 {
   "style": "dark medieval fantasy game sprite, 3/4 top-down view, painterly grim texture, muted desaturated palette of ash grey, bone white, dried blood red and tarnished brass, torch-lit mood, single centered subject filling most of the frame, no text, no watermark, isolated on transparent background",
+  "styles": {
+    "floor": "dark medieval fantasy game ground texture, viewed from directly above, painterly grim texture, muted desaturated palette, seamless and tileable, the entire frame completely filled edge to edge with ground surface, no isolated objects, no empty areas, no text, no watermark"
+  },
   "output": "public/assets",
   "assets": [
     {
@@ -29,6 +32,24 @@
     {
       "id": "core-crystal",
       "prompt": "a fist-sized faceted crystal orb glowing faint teal, wrapped in black iron claws, floating game item icon"
+    },
+    {
+      "id": "floor-cave",
+      "prompt": "seamless tileable natural cave floor of rough grey-green stone with patches of faint moss and scattered pebbles, viewed from directly above, edge-to-edge texture with no border"
+    },
+    {
+      "id": "floor-abyss",
+      "prompt": "deep sea cavern floor of dark wet sand and smooth blue-grey stone with faint coral fragments",
+      "styleKey": "floor",
+      "opaque": true
+    },
+    {
+      "id": "prop-mushroom",
+      "prompt": "a small cluster of glowing pale-teal cave mushrooms growing on a mossy rock, viewed from above"
+    },
+    {
+      "id": "prop-coral",
+      "prompt": "a small cluster of deep-sea coral with faint bioluminescent blue tips, viewed from above"
     }
   ]
 }
