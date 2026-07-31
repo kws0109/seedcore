@@ -68,7 +68,11 @@ export type GameEvent =
   | { type: 'enemyHit'; pos: Vec; angle: number }
   | { type: 'enemyDied'; pos: Vec }
   | { type: 'playerHit'; pos: Vec }
-  | { type: 'dash'; pos: Vec; angle: number };
+  | { type: 'dash'; pos: Vec; angle: number }
+  | { type: 'shoot'; pos: Vec }
+  | { type: 'dropPicked'; pos: Vec }
+  | { type: 'dungeonCleared' }
+  | { type: 'playerDied' };
 
 export interface GameState {
   tick: number;
@@ -79,6 +83,7 @@ export interface GameState {
   gold: number;
   items: OwnedItem[];
   cleared: boolean;
+  nextProjectileId: number;
   dungeon: Dungeon | null; // null이면 벽 없는 무한 평면 (테스트용)
   hitstop: number; // 남은 정지 시간(초)
   events: GameEvent[]; // 이번 틱에 발생한 렌더 큐. 매 step 초기화.
@@ -127,6 +132,7 @@ export function createState(): GameState {
     gold: 0,
     items: [],
     cleared: false,
+    nextProjectileId: 0,
     dungeon: null,
     hitstop: 0,
     events: [],

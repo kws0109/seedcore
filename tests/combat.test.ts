@@ -54,6 +54,61 @@ describe('combat: 공격', () => {
   });
 });
 
+describe('combat: 궁수·투사체', () => {
+  it('사거리 내 궁수는 쿨다운마다 투사체를 쏜다', () => {
+    const s = createState();
+    s.enemies.push(createEnemy(1, { x: 250, y: 0 }, 'archer'));
+    step(s, idleInput());
+    expect(s.projectiles).toHaveLength(1);
+    step(s, idleInput());
+    expect(s.projectiles).toHaveLength(1); // 쿨다운 중 재발사 없음
+  });
+
+  it('투사체는 플레이어에게 1회 피해 후 소멸한다', () => {
+    const s = createState();
+    s.projectiles.push({
+      id: 1,
+      pos: { x: 30, y: 0 },
+      vel: { x: -320, y: 0 },
+      radius: 5,
+      damage: ENEMIES.archer.projectileDamage,
+      ttl: 3,
+    });
+    let hits = 0;
+    for (let i = 0; i < 20; i++) {
+      step(s, idleInput());
+      if (s.events.some((ev) => ev.type === 'playerHit')) hits++;
+    }
+    expect(hits).toBe(1);
+    expect(s.player.hp).toBe(T.playerMaxHp - ENEMIES.archer.projectileDamage);
+    expect(s.projectiles).toHaveLength(0);
+  });
+
+  it('대시 중에는 투사체 피해를 받지 않는다', () => {
+    const s = createState();
+    s.projectiles.push({
+      id: 1,
+      pos: { x: 20, y: 0 },
+      vel: { x: -320, y: 0 },
+      radius: 5,
+      damage: 14,
+      ttl: 0.05,
+    });
+    step(s, { ...idleInput(), dash: true, moveX: 1 });
+    expect(s.player.hp).toBe(T.playerMaxHp);
+  });
+
+  it('브루트는 넉백 저항이 있다', () => {
+    const s = createState();
+    s.enemies.push(createEnemy(1, { x: 50, y: 0 }, 'ghoul'));
+    s.enemies.push(createEnemy(2, { x: 50, y: 0 }, 'brute'));
+    step(s, { ...idleInput(), attack: true, aimX: 100, aimY: 0 });
+    const ghoul = s.enemies.find((e) => e.kind === 'ghoul')!;
+    const brute = s.enemies.find((e) => e.kind === 'brute')!;
+    expect(Math.abs(brute.vel.x)).toBeLessThan(Math.abs(ghoul.vel.x));
+  });
+});
+
 describe('combat: 접촉 피해', () => {
   it('피격 직후 무적 시간 동안 연속 피해가 없다', () => {
     const s = createState();
