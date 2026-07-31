@@ -1,6 +1,9 @@
-import { Application, Assets, Container, Sprite, Texture, TilingSprite } from 'pixi.js';
-import type { GameState } from '../game/state';
+import { Application, Assets, Container, Graphics, Sprite, Texture, TilingSprite } from 'pixi.js';
+import { isWall, TILE, type Dungeon } from '../game/dungeon';
+import type { EnemyKind, GameState } from '../game/state';
 import { Effects } from './effects';
+
+const RARITY_TINT = { common: 0xcfc4a8, rare: 0x6a9ad0, epic: 0xb060d0 } as const;
 
 const BASE = import.meta.env.BASE_URL;
 
@@ -40,6 +43,12 @@ export class Renderer {
   private vignette!: Sprite;
   private playerSprite!: Sprite;
   private enemySprites = new Map<number, Sprite>();
+  private walls = new Graphics(); // 던전당 1회 빌드
+  private torchLayer = new Container();
+  private torchGlows: Sprite[] = [];
+  private projectilesG = new Graphics(); // 매 프레임 다시 그림
+  private dropsG = new Graphics();
+  private dropSprites = new Map<number, Sprite>();
 
   async init(): Promise<void> {
     await this.app.init({ background: '#0a0908', resizeTo: window, antialias: true });
@@ -83,9 +92,14 @@ export class Renderer {
     this.vignette.anchor.set(0.5);
     this.app.stage.addChild(this.vignette);
 
+    // 월드 레이어 순서: 벽 → 횃불 → 드롭 → (적: addChildAt(3)) → 플레이어 → 투사체 → 이펙트
+    this.world.addChild(this.walls);
+    this.world.addChild(this.torchLayer);
+    this.world.addChild(this.dropsG);
     this.playerSprite = new Sprite(this.textures.player);
     this.playerSprite.anchor.set(0.5, 0.62); // 발 밑 그림자 부근이 논리 위치에 오도록
     this.world.addChild(this.playerSprite);
+    this.world.addChild(this.projectilesG);
     this.world.addChild(this.fx); // 이펙트는 엔티티 위에 그린다
 
     this.layout();
@@ -109,11 +123,108 @@ export class Renderer {
     y: sy - this.world.position.y,
   });
 
+  // 던전 교체 시 정적 지형·횃불 재구축, 엔티티 스프라이트 초기화
+  setDungeon(d: Dungeon): void {
+    const g = this.walls;
+    g.clear();
+    const W = d.w * TILE;
+    const H = d.h * TILE;
+    const M = 4000; // 외곽 어둠 마진
+    g.rect(-M, -M, W + M * 2, M) // 상
+      .rect(-M, H, W + M * 2, M) // 하
+      .rect(-M, 0, M, H) // 좌
+      .rect(W, 0, M, H) // 우
+      .fill(0x14100d);
+    for (let ty = 0; ty < d.h; ty++) {
+      for (let tx = 0; tx < d.w; tx++) {
+        if (!isWall(d, tx, ty)) continue;
+        g.rect(tx * TILE, ty * TILE, TILE, TILE).fill(0x1a1512);
+        if (!isWall(d, tx, ty + 1)) {
+          // 아래가 바닥이면 벽면 하이라이트
+          g.rect(tx * TILE, ty * TILE + TILE - 5, TILE, 5).fill(0x322a20);
+        }
+      }
+    }
+
+    this.torchLayer.removeChildren().forEach((c) => c.destroy({ children: true }));
+    this.torchGlows = [];
+    for (const t of d.torches) {
+      const glow = new Sprite(
+        radialTexture(360, [
+          [0, 'rgba(255,170,80,0.35)'],
+          [0.6, 'rgba(200,110,50,0.1)'],
+          [1, 'rgba(0,0,0,0)'],
+        ]),
+      );
+      glow.anchor.set(0.5);
+      glow.blendMode = 'add';
+      glow.position.set(t.x, t.y + 10);
+      this.torchLayer.addChild(glow);
+      this.torchGlows.push(glow);
+      const torch = new Sprite(this.textures.torch);
+      torch.anchor.set(0.5, 0.6);
+      torch.scale.set(44 / 256);
+      torch.position.set(t.x, t.y);
+      this.torchLayer.addChild(torch);
+    }
+
+    for (const sp of this.enemySprites.values()) sp.destroy();
+    this.enemySprites.clear();
+    for (const sp of this.dropSprites.values()) sp.destroy();
+    this.dropSprites.clear();
+    this.projectilesG.clear();
+    this.dropsG.clear();
+  }
+
   draw(s: GameState, dtMs: number): void {
     this.updateCamera(s, dtMs);
     this.drawPlayer(s);
     this.drawEnemies(s);
+    this.drawProjectiles(s);
+    this.drawDrops(s);
+    for (const glow of this.torchGlows) glow.alpha = 0.8 + Math.random() * 0.2;
     this.effects.tick(dtMs);
+  }
+
+  private drawProjectiles(s: GameState): void {
+    const g = this.projectilesG;
+    g.clear();
+    for (const pr of s.projectiles) {
+      const tail = { x: pr.pos.x - pr.vel.x * 0.04, y: pr.pos.y - pr.vel.y * 0.04 };
+      g.moveTo(tail.x, tail.y).lineTo(pr.pos.x, pr.pos.y).stroke({ color: 0x6a1d1d, width: 3 });
+      g.circle(pr.pos.x, pr.pos.y, pr.radius).fill(0xc03a2a);
+    }
+  }
+
+  private drawDrops(s: GameState): void {
+    const g = this.dropsG;
+    g.clear();
+    const alive = new Set<number>();
+    const pulse = 1 + 0.15 * Math.sin(s.tick * 0.15);
+    for (const d of s.drops) {
+      alive.add(d.id);
+      if (d.item) {
+        let sp = this.dropSprites.get(d.id);
+        if (!sp) {
+          sp = new Sprite(this.textures.core);
+          sp.anchor.set(0.5);
+          sp.scale.set(30 / 256);
+          sp.tint = RARITY_TINT[d.item.rarity];
+          this.world.addChildAt(sp, this.world.getChildIndex(this.dropsG));
+          this.dropSprites.set(d.id, sp);
+        }
+        sp.position.set(d.pos.x, d.pos.y + Math.sin(s.tick * 0.1 + d.id) * 3);
+      } else {
+        g.circle(d.pos.x, d.pos.y, 7 * pulse).fill(0xb08d3e);
+        g.circle(d.pos.x, d.pos.y, 3.5 * pulse).fill(0xe6c878);
+      }
+    }
+    for (const [id, sp] of this.dropSprites) {
+      if (!alive.has(id)) {
+        sp.destroy();
+        this.dropSprites.delete(id);
+      }
+    }
   }
 
   private updateCamera(s: GameState, dtMs: number): void {
@@ -146,17 +257,24 @@ export class Renderer {
 
   private drawEnemies(s: GameState): void {
     const alive = new Set<number>();
+    const tex: Record<EnemyKind, Texture> = {
+      ghoul: this.textures.ghoul,
+      archer: this.textures.archer,
+      brute: this.textures.brute,
+    };
+    const displaySize: Record<EnemyKind, number> = { ghoul: 56, archer: 56, brute: 92 };
     for (const e of s.enemies) {
       alive.add(e.id);
       let sp = this.enemySprites.get(e.id);
       if (!sp) {
-        sp = new Sprite(this.textures.ghoul);
+        sp = new Sprite(tex[e.kind]);
         sp.anchor.set(0.5, 0.62);
-        this.world.addChildAt(sp, 0); // 플레이어 뒤에
+        // 플레이어 스프라이트 바로 아래 레이어에 삽입
+        this.world.addChildAt(sp, this.world.getChildIndex(this.playerSprite));
         this.enemySprites.set(e.id, sp);
       }
       sp.position.set(e.pos.x, e.pos.y + Math.sin(s.tick * 0.2 + e.id) * 1.2);
-      const scale = 56 / 256;
+      const scale = displaySize[e.kind] / 256;
       const faceLeft = s.player.pos.x < e.pos.x;
       const pop = 1 + e.hitFlash * 2; // 피격 순간 살짝 커졌다 복귀
       sp.scale.set((faceLeft ? -scale : scale) * pop, scale * pop);
