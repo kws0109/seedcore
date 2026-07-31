@@ -1,8 +1,8 @@
 import { Input } from './engine/input';
 import { startLoop } from './engine/loop';
-import { mulberry32 } from './engine/rng';
+import { generateDungeon } from './game/dungeon';
 import { step } from './game/sim';
-import { createEnemy, createState } from './game/state';
+import { createStateFromDungeon, type GameState } from './game/state';
 import { T } from './game/tuning';
 import { Renderer } from './render/renderer';
 
@@ -14,27 +14,64 @@ async function boot(): Promise<void> {
   input.attach(document.body);
 
   const hpfill = document.getElementById('hpfill') as HTMLDivElement;
+  const goldEl = document.getElementById('gold') as HTMLDivElement;
+  const overlay = document.getElementById('overlay') as HTMLDivElement;
+  const overlayTitle = document.getElementById('overlay-title') as HTMLHeadingElement;
+  const overlayBody = document.getElementById('overlay-body') as HTMLParagraphElement;
+  const overlayHint = document.getElementById('overlay-hint') as HTMLParagraphElement;
 
-  const state = createState();
-  // 프로토타입용 시드 스폰. 던전 생성 단계에서 대체된다.
-  const rng = mulberry32(2026);
-  let nextEnemyId = 0;
-  const spawnEnemy = (): void => {
-    const angle = rng() * Math.PI * 2;
-    const dist = 300 + rng() * 200;
-    state.enemies.push(
-      createEnemy(nextEnemyId++, {
-        x: state.player.pos.x + Math.cos(angle) * dist,
-        y: state.player.pos.y + Math.sin(angle) * dist,
-      }),
-    );
+  let seed = 20260810;
+  let state: GameState;
+  let paused = false;
+
+  const enterDungeon = (newSeed: number): void => {
+    seed = newSeed;
+    const dungeon = generateDungeon(seed);
+    const carried = state ? { gold: state.gold, items: state.items } : null;
+    state = createStateFromDungeon(dungeon);
+    if (carried) {
+      // 골드·아이템은 런을 넘어 유지 (아이템 효과 재적용)
+      state.gold = carried.gold;
+      for (const item of carried.items) {
+        state.items.push(item);
+        if (item.stat === 'atk') state.player.atkMul += T.itemAtk[item.rarity];
+        else if (item.stat === 'speed') state.player.speedMul += T.itemSpeed[item.rarity];
+        else state.player.maxHp += T.itemHp[item.rarity];
+      }
+      state.player.hp = state.player.maxHp;
+    }
+    renderer.setDungeon(dungeon);
+    overlay.classList.add('hidden');
+    paused = false;
   };
-  for (let i = 0; i < 5; i++) spawnEnemy();
+
+  const showOverlay = (title: string, body: string, hint: string): void => {
+    overlayTitle.textContent = title;
+    overlayBody.textContent = body;
+    overlayHint.textContent = hint;
+    overlay.classList.remove('hidden');
+    paused = true;
+  };
+
+  const itemSummary = (): string => {
+    if (state.items.length === 0) return '획득한 장비 없음';
+    const counts = { common: 0, rare: 0, epic: 0 };
+    for (const it of state.items) counts[it.rarity]++;
+    return `장비 — 일반 ${counts.common} · 희귀 ${counts.rare} · 영웅 ${counts.epic}`;
+  };
+
+  window.addEventListener('keydown', (e) => {
+    if (e.code !== 'KeyR' || !paused) return;
+    if (state.dead) enterDungeon(seed); // 같은 시드 재도전 — 같은 던전이 그대로 재생성된다
+    else enterDungeon(seed + 1);
+  });
+
+  enterDungeon(seed);
 
   startLoop(
     () => {
+      if (paused) return;
       step(state, input.sample(renderer.toWorld));
-      while (state.enemies.length < 5) spawnEnemy(); // 프로토타입: 상시 5마리 유지
       for (const ev of state.events) {
         const fx = renderer.effects;
         const p = state.player;
@@ -57,16 +94,38 @@ async function boot(): Promise<void> {
           case 'dash':
             fx.ghost(ev.pos.x, ev.pos.y, p.radius);
             break;
+          case 'shoot':
+            break;
+          case 'dropPicked':
+            fx.burst(ev.pos.x, ev.pos.y, 0xc9a95c, 5, 30);
+            break;
+          case 'dungeonCleared':
+            showOverlay(
+              '던전 정복',
+              `${state.gold} G 보유 · ${itemSummary()}`,
+              'R — 다음 던전으로',
+            );
+            break;
+          case 'playerDied':
+            showOverlay('전사', '어둠이 그대를 삼켰다.', 'R — 같은 던전에 재도전');
+            break;
         }
       }
       hpfill.style.width = `${Math.max(0, (state.player.hp / state.player.maxHp) * 100)}%`;
+      goldEl.textContent = `${state.gold} G`;
     },
     (dtMs) => renderer.draw(state, dtMs),
   );
 
   if (import.meta.env.DEV) {
     // 개발 전용 디버그 훅: 브라우저 자동 검증에서 부트 완료·상태 확인용
-    (window as unknown as Record<string, unknown>).__seedcore = { state, renderer };
+    (window as unknown as Record<string, unknown>).__seedcore = {
+      get state() {
+        return state;
+      },
+      renderer,
+      enterDungeon,
+    };
   }
 }
 

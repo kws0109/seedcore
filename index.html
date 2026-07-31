@@ -35,11 +35,63 @@
         background: linear-gradient(#8a2424, #5e1616);
         transition: width 80ms linear;
       }
+      #gold {
+        margin-top: 8px;
+        color: #c9a95c;
+        font-family: monospace;
+        font-size: 15px;
+        text-shadow: 0 1px 2px #000;
+      }
+      #overlay {
+        position: fixed;
+        inset: 0;
+        z-index: 20;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(5, 4, 3, 0.72);
+        font-family: monospace;
+      }
+      #overlay.hidden {
+        display: none;
+      }
+      #overlay-panel {
+        min-width: 320px;
+        max-width: 460px;
+        padding: 28px 36px;
+        text-align: center;
+        color: #d8cdb8;
+        background: rgba(16, 13, 10, 0.95);
+        border: 2px solid #4a423a;
+        box-shadow: 0 0 0 1px #14100c, 0 12px 40px rgba(0, 0, 0, 0.8);
+      }
+      #overlay-panel h1 {
+        margin: 0 0 12px;
+        font-size: 22px;
+        letter-spacing: 6px;
+        color: #e6d8b8;
+      }
+      #overlay-panel p {
+        margin: 6px 0;
+        font-size: 14px;
+        line-height: 1.6;
+      }
+      #overlay-hint {
+        color: #8f8574;
+      }
     </style>
   </head>
   <body>
     <div id="hud">
       <div id="hpbar"><div id="hpfill"></div></div>
+      <div id="gold">0 G</div>
+    </div>
+    <div id="overlay" class="hidden">
+      <div id="overlay-panel">
+        <h1 id="overlay-title"></h1>
+        <p id="overlay-body"></p>
+        <p id="overlay-hint"></p>
+      </div>
     </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
