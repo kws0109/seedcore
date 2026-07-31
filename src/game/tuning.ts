@@ -1,0 +1,20 @@
+// 밸런스 상수. 던전 생성 단계에서 JSON 데이터 테이블로 이전 예정.
+export const T = {
+  playerSpeed: 220,
+  playerRadius: 14,
+  playerMaxHp: 100,
+  dashSpeed: 640,
+  dashDuration: 0.15,
+  dashCooldown: 0.5,
+  attackRange: 70,
+  attackArc: 1.1,
+  attackDamage: 34,
+  attackCooldown: 0.25,
+  attackKnockback: 260,
+  hitstopSec: 0.05,
+  enemyRadius: 13,
+  enemyHp: 100,
+  enemySpeed: 120,
+  enemyTouchDamage: 10,
+  playerInvulnAfterHit: 0.6,
+} as const;
