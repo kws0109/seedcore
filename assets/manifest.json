@@ -50,6 +50,22 @@
     {
       "id": "prop-coral",
       "prompt": "a small cluster of deep-sea coral with faint bioluminescent blue tips, viewed from above"
+    },
+    {
+      "id": "prop-device",
+      "prompt": "an ancient black iron obelisk pedestal with an empty crystal socket at its center, faint teal runes carved into the metal, dungeon portal device"
+    },
+    {
+      "id": "prop-chest",
+      "prompt": "a sturdy iron-banded wooden storage chest with a heavy lock, battle-worn"
+    },
+    {
+      "id": "prop-anvil",
+      "prompt": "a blacksmith anvil on a scorched stone base with a hammer resting on it, faint ember glow"
+    },
+    {
+      "id": "prop-merchant",
+      "prompt": "a hooded merchant figure in dark tattered robes standing beside a small display of glowing crystal orbs, face hidden in shadow"
     }
   ]
 }
