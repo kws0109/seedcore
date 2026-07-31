@@ -3,6 +3,7 @@ import { startLoop } from './engine/loop';
 import { mulberry32 } from './engine/rng';
 import { step } from './game/sim';
 import { createEnemy, createState } from './game/state';
+import { T } from './game/tuning';
 import { Renderer } from './render/renderer';
 
 async function boot(): Promise<void> {
@@ -33,8 +34,28 @@ async function boot(): Promise<void> {
       step(state, input.sample(renderer.toWorld));
       while (state.enemies.length < 5) spawnEnemy(); // 프로토타입: 상시 5마리 유지
       for (const ev of state.events) {
-        if (ev.type === 'enemyHit') renderer.shake = Math.max(renderer.shake, 6);
-        if (ev.type === 'playerHit') renderer.shake = Math.max(renderer.shake, 12);
+        const fx = renderer.effects;
+        const p = state.player;
+        switch (ev.type) {
+          case 'playerAttack':
+            fx.slash(p.pos.x, p.pos.y, ev.angle, T.attackRange, T.attackArc);
+            break;
+          case 'enemyHit':
+            fx.burst(ev.pos.x, ev.pos.y, 0xf05a6e, 6, 40);
+            renderer.shake = Math.max(renderer.shake, 6);
+            break;
+          case 'enemyDied':
+            fx.burst(ev.pos.x, ev.pos.y, 0xffb4c0, 14, 80);
+            renderer.shake = Math.max(renderer.shake, 10);
+            break;
+          case 'playerHit':
+            fx.burst(ev.pos.x, ev.pos.y, 0x46f0c8, 10, 60);
+            renderer.shake = Math.max(renderer.shake, 12);
+            break;
+          case 'dash':
+            fx.ghost(ev.pos.x, ev.pos.y, p.radius);
+            break;
+        }
       }
     },
     (dtMs) => renderer.draw(state, dtMs),

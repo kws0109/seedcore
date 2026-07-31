@@ -1,5 +1,6 @@
 import { Application, Container, Graphics } from 'pixi.js';
 import type { GameState } from '../game/state';
+import { Effects } from './effects';
 
 const COLORS = {
   bg: '#08080c',
@@ -13,6 +14,7 @@ export class Renderer {
   readonly app = new Application();
   readonly world = new Container(); // 카메라 변환 대상
   readonly fx = new Container(); // 이펙트 레이어
+  readonly effects = new Effects(this.fx);
   shake = 0; // 남은 흔들림 강도(px)
   private playerG = new Graphics();
   private enemiesG = new Graphics();
@@ -34,6 +36,7 @@ export class Renderer {
     this.updateCamera(s, dtMs);
     this.drawPlayer(s);
     this.drawEnemies(s);
+    this.effects.tick(dtMs);
   }
 
   private updateCamera(s: GameState, dtMs: number): void {
