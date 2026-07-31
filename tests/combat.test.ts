@@ -109,6 +109,51 @@ describe('combat: 궁수·투사체', () => {
   });
 });
 
+describe('combat: 드롭·클리어', () => {
+  it('적 처치 시 사전 롤링된 드롭이 스폰된다', () => {
+    const s = createState();
+    const e = createEnemy(1, { x: 50, y: 0 });
+    e.hp = T.attackDamage;
+    e.drop = { gold: 12, item: { rarity: 'rare', stat: 'atk' } };
+    s.enemies.push(e);
+    step(s, { ...idleInput(), attack: true, aimX: 100, aimY: 0 });
+    expect(s.drops).toHaveLength(1);
+    expect(s.drops[0].gold).toBe(12);
+    expect(s.drops[0].item).toEqual({ rarity: 'rare', stat: 'atk' });
+  });
+
+  it('드롭에 접근하면 골드가 오르고 아이템 스탯이 즉시 적용된다', () => {
+    const s = createState();
+    s.drops.push({ id: 1, pos: { x: 10, y: 0 }, gold: 30, item: { rarity: 'common', stat: 'hp' } });
+    const beforeMax = s.player.maxHp;
+    step(s, idleInput());
+    expect(s.gold).toBe(30);
+    expect(s.items).toHaveLength(1);
+    expect(s.player.maxHp).toBeGreaterThan(beforeMax);
+    expect(s.drops).toHaveLength(0);
+  });
+
+  it('적 전멸 시 dungeonCleared 이벤트가 정확히 1회 발생한다', () => {
+    const s = createState();
+    const e = createEnemy(1, { x: 50, y: 0 });
+    e.hp = T.attackDamage;
+    s.enemies.push(e);
+    step(s, { ...idleInput(), attack: true, aimX: 100, aimY: 0 });
+    expect(s.cleared).toBe(true);
+    expect(s.events.filter((ev) => ev.type === 'dungeonCleared')).toHaveLength(1);
+    step(s, idleInput());
+    expect(s.events.filter((ev) => ev.type === 'dungeonCleared')).toHaveLength(0);
+  });
+
+  it('플레이어 사망 시 playerDied 이벤트가 발생한다', () => {
+    const s = createState();
+    s.player.hp = 5;
+    s.enemies.push(createEnemy(1, { x: 0, y: 0 }));
+    step(s, idleInput());
+    expect(s.events.some((ev) => ev.type === 'playerDied')).toBe(true);
+  });
+});
+
 describe('combat: 접촉 피해', () => {
   it('피격 직후 무적 시간 동안 연속 피해가 없다', () => {
     const s = createState();

@@ -35,6 +35,7 @@ export function step(s: GameState, inp: InputFrame): void {
     s.hitstop = Math.max(0, s.hitstop - DT);
     return;
   }
+  if (s.dead) return; // 사망 후 세계 정지 (재시작은 main 담당)
   s.tick += 1;
   const p = s.player;
 
@@ -49,6 +50,12 @@ export function step(s: GameState, inp: InputFrame): void {
   stepAttack(s, inp);
   stepEnemies(s);
   stepProjectiles(s);
+  stepDrops(s);
+
+  if (p.hp <= 0 && !s.dead) {
+    s.dead = true;
+    s.events.push({ type: 'playerDied' });
+  }
 }
 
 function circleHitsWall(d: Dungeon | null, pos: Vec, r: number): boolean {
@@ -85,7 +92,8 @@ function stepMove(s: GameState, inp: InputFrame): void {
   const p = s.player;
   if (p.dashTimer === 0) {
     const dir = norm({ x: inp.moveX, y: inp.moveY });
-    p.vel = { x: dir.x * T.playerSpeed, y: dir.y * T.playerSpeed };
+    const speed = T.playerSpeed * p.speedMul;
+    p.vel = { x: dir.x * speed, y: dir.y * speed };
   }
   moveAxis(s.dungeon, p.pos, p.radius, p.vel.x * DT, 0);
   moveAxis(s.dungeon, p.pos, p.radius, 0, p.vel.y * DT);
@@ -104,7 +112,7 @@ function stepAttack(s: GameState, inp: InputFrame): void {
     const inRange = dist <= T.attackRange + e.radius;
     const inArc = angleDiff(angleTo(p.pos, e.pos), p.facing) <= T.attackArc;
     if (!inRange || !inArc) continue;
-    e.hp -= T.attackDamage;
+    e.hp -= Math.round(T.attackDamage * p.atkMul);
     e.hitFlash = 0.1;
     const kb = norm({ x: dx, y: dy });
     e.vel.x += kb.x * T.attackKnockback * e.kbResist;
@@ -152,10 +160,20 @@ function stepEnemies(s: GameState): void {
       s.events.push({ type: 'playerHit', pos: { ...p.pos } });
     }
   }
+  let anyDied = false;
   for (const e of s.enemies) {
-    if (e.hp <= 0) s.events.push({ type: 'enemyDied', pos: { ...e.pos } });
+    if (e.hp > 0) continue;
+    anyDied = true;
+    s.events.push({ type: 'enemyDied', pos: { ...e.pos } });
+    if (e.drop && (e.drop.gold > 0 || e.drop.item)) {
+      s.drops.push({ id: s.nextDropId++, pos: { ...e.pos }, gold: e.drop.gold, item: e.drop.item });
+    }
   }
   s.enemies = s.enemies.filter((e) => e.hp > 0);
+  if (anyDied && s.enemies.length === 0 && !s.cleared) {
+    s.cleared = true;
+    s.events.push({ type: 'dungeonCleared' });
+  }
 }
 
 function spawnProjectile(s: GameState, e: Enemy, dir: Vec, speed: number, damage: number): void {
@@ -189,4 +207,28 @@ function stepProjectiles(s: GameState): void {
     }
   }
   s.projectiles = s.projectiles.filter((pr) => pr.ttl > 0);
+}
+
+function stepDrops(s: GameState): void {
+  const p = s.player;
+  const kept: typeof s.drops = [];
+  for (const d of s.drops) {
+    if (!circlesOverlap(p.pos, p.radius, d.pos, T.pickupRadius)) {
+      kept.push(d);
+      continue;
+    }
+    s.gold += d.gold;
+    if (d.item) {
+      s.items.push({ ...d.item });
+      if (d.item.stat === 'atk') p.atkMul += T.itemAtk[d.item.rarity];
+      else if (d.item.stat === 'speed') p.speedMul += T.itemSpeed[d.item.rarity];
+      else {
+        const bonus = T.itemHp[d.item.rarity];
+        p.maxHp += bonus;
+        p.hp = Math.min(p.maxHp, p.hp + bonus);
+      }
+    }
+    s.events.push({ type: 'dropPicked', pos: { ...d.pos } });
+  }
+  s.drops = kept;
 }

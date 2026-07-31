@@ -23,6 +23,8 @@ export interface Player {
   dashCooldown: number;
   attackCooldown: number;
   invulnTimer: number;
+  atkMul: number; // 아이템 누적 공격 배율
+  speedMul: number; // 아이템 누적 이속 배율
 }
 
 export type EnemyKind = 'ghoul' | 'archer' | 'brute';
@@ -83,7 +85,9 @@ export interface GameState {
   gold: number;
   items: OwnedItem[];
   cleared: boolean;
+  dead: boolean;
   nextProjectileId: number;
+  nextDropId: number;
   dungeon: Dungeon | null; // null이면 벽 없는 무한 평면 (테스트용)
   hitstop: number; // 남은 정지 시간(초)
   events: GameEvent[]; // 이번 틱에 발생한 렌더 큐. 매 step 초기화.
@@ -101,6 +105,8 @@ export function createPlayer(pos: Vec): Player {
     dashCooldown: 0,
     attackCooldown: 0,
     invulnTimer: 0,
+    atkMul: 1,
+    speedMul: 1,
   };
 }
 
@@ -132,7 +138,9 @@ export function createState(): GameState {
     gold: 0,
     items: [],
     cleared: false,
+    dead: false,
     nextProjectileId: 0,
+    nextDropId: 0,
     dungeon: null,
     hitstop: 0,
     events: [],
