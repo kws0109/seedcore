@@ -33,27 +33,46 @@ await mkdir(manifest.output, { recursive: true });
 for (const asset of targets) {
   // styleKey가 있으면 해당 대체 스타일 템플릿 사용 (예: 바닥 텍스처는 isolated/transparent 문구 금지)
   const style = asset.styleKey ? manifest.styles[asset.styleKey] : manifest.style;
-  const prompt = `${asset.prompt}, ${style}`;
+  // editFrom이 있으면 스타일 접두 없이 편집 지시문 그대로 사용 (원본 스타일 유지가 목적)
+  const prompt = asset.editFrom ? asset.prompt : `${asset.prompt}, ${style}`;
   if (dry) {
-    console.log(`--- ${asset.id}\n${prompt}\n`);
+    console.log(`--- ${asset.id}${asset.editFrom ? ` (edit from ${asset.editFrom})` : ''}\n${prompt}\n`);
     continue;
   }
   console.log(`생성 중: ${asset.id} ...`);
-  const res = await fetch('https://api.openai.com/v1/images/generations', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: MODEL,
-      prompt,
-      size: SIZE,
-      quality: QUALITY,
-      background: asset.opaque ? 'opaque' : 'transparent',
-      n: 1,
-    }),
-  });
+  let res;
+  if (asset.editFrom) {
+    // 기존 에셋을 레퍼런스로 편집 (images/edits, multipart)
+    const src = await readFile(`${manifest.output}/${asset.editFrom}.png`);
+    const form = new FormData();
+    form.append('model', MODEL);
+    form.append('prompt', prompt);
+    form.append('size', SIZE);
+    form.append('quality', QUALITY);
+    form.append('background', asset.opaque ? 'opaque' : 'transparent');
+    form.append('image[]', new Blob([src], { type: 'image/png' }), `${asset.editFrom}.png`);
+    res = await fetch('https://api.openai.com/v1/images/edits', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${apiKey}` },
+      body: form,
+    });
+  } else {
+    res = await fetch('https://api.openai.com/v1/images/generations', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: MODEL,
+        prompt,
+        size: SIZE,
+        quality: QUALITY,
+        background: asset.opaque ? 'opaque' : 'transparent',
+        n: 1,
+      }),
+    });
+  }
   if (!res.ok) {
     console.error(`실패 (${asset.id}): HTTP ${res.status}\n${await res.text()}`);
     process.exit(1);

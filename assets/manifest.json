@@ -66,6 +66,15 @@
     {
       "id": "prop-merchant",
       "prompt": "a hooded merchant figure in dark tattered robes standing beside a small display of glowing crystal orbs, face hidden in shadow"
+    },
+    {
+      "id": "player-knight-rig",
+      "prompt": "a lone knight in battered dark steel armor, a tattered crimson cloak hanging close against his back, both gloved hands empty and relaxed at his sides, no weapon, standing upright, full body clearly visible including legs and boots, crisp silhouette with no smoke or fog"
+    },
+    {
+      "id": "weapon-longsword",
+      "editFrom": "player-knight",
+      "prompt": "Show only this knight's worn longsword as a single isolated item: the full blade, crossguard, grip and pommel, oriented vertically with the blade pointing up, nothing else in the image, same painterly style, isolated on transparent background."
     }
   ]
 }

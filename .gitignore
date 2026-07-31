@@ -4,3 +4,6 @@ dist/
 .env
 CLAUDE.md
 docs-private/
+assets/3d/*.glb
+.playwright-mcp/
+knight-*.png

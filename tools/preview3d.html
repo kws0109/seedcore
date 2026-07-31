@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <title>3D 사전 렌더 뷰어</title>
+    <style>
+      body {
+        margin: 0;
+        background: #222;
+      }
+      canvas {
+        display: block;
+      }
+    </style>
+  </head>
+  <body>
+    <script type="module">
+      // GLB를 게임과 같은 3/4 탑다운 각도로 재생·캡처하는 도구 페이지.
+      // 쿼리: ?glb=/seedcore/assets/3d/player-knight-walk.glb
+      // 콘솔 API:
+      //   __snap(size, t)        — 클립 시각 t(초)의 단일 프레임 dataURL
+      //   __captureClip(size, frames, yaw) — 클립을 N등분해 프레임 배열 캡처
+      import * as THREE from 'three';
+      import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+
+      const params = new URLSearchParams(location.search);
+      const glbUrl = params.get('glb');
+
+      const SIZE = 512;
+      const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
+      renderer.setSize(SIZE, SIZE);
+      document.body.appendChild(renderer.domElement);
+
+      const scene = new THREE.Scene();
+      // 게임 시점 근사: 위에서 55도 내려다보는 3/4 뷰
+      const camera = new THREE.OrthographicCamera(-1.05, 1.05, 1.05, -1.05, 0.1, 50);
+      const CAM_PITCH = THREE.MathUtils.degToRad(38); // 게임 스프라이트의 3/4 각도 근사
+      camera.position.set(0, Math.sin(CAM_PITCH) * 6, Math.cos(CAM_PITCH) * 6);
+      camera.lookAt(0, 0.75, 0);
+
+      scene.add(new THREE.AmbientLight(0xffffff, 1.1));
+      const key = new THREE.DirectionalLight(0xfff0dd, 1.6);
+      key.position.set(2, 5, 3);
+      scene.add(key);
+
+      const pivot = new THREE.Group();
+      scene.add(pivot);
+
+      let mixer = null;
+      let clipDuration = 0;
+      const clock = new THREE.Clock();
+
+      const loader = new GLTFLoader();
+      loader.load(glbUrl, (gltf) => {
+        const model = gltf.scene;
+        // 모델을 표준 크기·바닥 기준으로 정규화
+        const box = new THREE.Box3().setFromObject(model);
+        const size = box.getSize(new THREE.Vector3());
+        const scale = 1.6 / Math.max(size.x, size.y, size.z);
+        model.scale.setScalar(scale);
+        const box2 = new THREE.Box3().setFromObject(model);
+        model.position.y -= box2.min.y;
+        model.position.x -= (box2.min.x + box2.max.x) / 2;
+        model.position.z -= (box2.min.z + box2.max.z) / 2;
+        pivot.add(model);
+        if (gltf.animations.length > 0) {
+          mixer = new THREE.AnimationMixer(model);
+          const action = mixer.clipAction(gltf.animations[0]);
+          action.play();
+          clipDuration = gltf.animations[0].duration;
+        }
+
+        // 본 이름 수집 (무기 부착 지점 탐색용)
+        window.__bones = [];
+        model.traverse((o) => {
+          if (o.isBone) window.__bones.push(o.name);
+        });
+
+        // ?weapon= 파라미터: 무기 GLB를 오른손 본에 부착 (강체 — 스키닝 없음 = 절대 안 휨)
+        // 무기 교체 설계: 아이템 시스템이 붙으면 이 GLB만 갈아끼우고 무기 패스만 재캡처한다.
+        const weaponUrl = params.get('weapon');
+        if (weaponUrl) {
+          loader.load(weaponUrl, (wg) => {
+            const weapon = wg.scene;
+            let hand = null;
+            model.traverse((o) => {
+              if (!hand && o.isBone && /hand.*r(ight)?$|r(ight)?.*hand/i.test(o.name)) hand = o;
+            });
+            // 본 하위로 들어가면 모델 정규화 스케일이 상속되므로, 본의 월드 스케일로 역보정
+            const boneWorldScale = hand
+              ? hand.getWorldScale(new THREE.Vector3()).x
+              : model.scale.x;
+            const wbox = new THREE.Box3().setFromObject(weapon);
+            const wsize = wbox.getSize(new THREE.Vector3());
+            const wscale = 0.85 / Math.max(wsize.x, wsize.y, wsize.z) / boneWorldScale;
+            weapon.scale.setScalar(wscale);
+            const wbox2 = new THREE.Box3().setFromObject(weapon);
+            // 그립(자루 하단 1/4 지점)이 본 원점에 오도록 오프셋
+            weapon.position.set(
+              -(wbox2.min.x + wbox2.max.x) / 2,
+              -(wbox2.min.y + (wbox2.max.y - wbox2.min.y) * 0.25),
+              -(wbox2.min.z + wbox2.max.z) / 2,
+            );
+            const grip = new THREE.Group();
+            grip.add(weapon);
+            grip.rotation.set(Math.PI / 2, 0, 0); // 기본: 전방으로 눕힘 (콘솔에서 조정)
+            if (hand) {
+              hand.add(grip);
+              window.__weaponGrip = grip;
+              window.__weaponBone = hand.name;
+            } else {
+              window.__weaponBone = 'NOT_FOUND';
+            }
+            window.__ready = true;
+          });
+        } else {
+          window.__ready = true;
+        }
+      });
+
+      function renderAt(t, yaw) {
+        pivot.rotation.y = yaw ?? 0;
+        if (mixer) {
+          mixer.setTime(t ?? 0);
+        }
+        renderer.render(scene, camera);
+      }
+
+      window.__snap = (size = 256, t = 0, yaw = 0) => {
+        renderer.setSize(size, size);
+        renderAt(t, yaw);
+        return renderer.domElement.toDataURL('image/png');
+      };
+
+      window.__clipDuration = () => clipDuration;
+
+      window.__captureClip = (size = 128, frames = 6, yaw = 0) => {
+        renderer.setSize(size, size);
+        const out = [];
+        for (let i = 0; i < frames; i++) {
+          renderAt((clipDuration * i) / frames, yaw);
+          out.push(renderer.domElement.toDataURL('image/png'));
+        }
+        return out;
+      };
+
+      // 화면 확인용 루프
+      (function animate() {
+        requestAnimationFrame(animate);
+        if (mixer) mixer.update(clock.getDelta());
+        renderer.render(scene, camera);
+      })();
+    </script>
+  </body>
+</html>
