@@ -165,9 +165,10 @@ export class Renderer {
     this.vignette.anchor.set(0.5);
     this.app.stage.addChild(this.vignette);
 
-    // 월드 레이어 순서: 벽 → 횃불 → 드롭 → (적: addChildAt(3)) → 플레이어 → 투사체 → 이펙트
+    // 월드 레이어 순서: 벽 → 횃불 → 그림자 → 드롭 → 적 → 플레이어 → 투사체 → 이펙트
     this.world.addChild(this.walls);
     this.world.addChild(this.torchLayer);
+    this.world.addChild(this.shadowsG);
     this.world.addChild(this.dropsG);
     this.playerSprite = new Sprite(this.textures.player);
     this.playerSprite.anchor.set(0.5, 0.62); // 발 밑 그림자 부근이 논리 위치에 오도록
@@ -253,16 +254,61 @@ export class Renderer {
 
     for (const sp of this.enemySprites.values()) sp.destroy();
     this.enemySprites.clear();
+    this.enemyPrevPos.clear();
     for (const sp of this.dropSprites.values()) sp.destroy();
     this.dropSprites.clear();
+    for (const c of this.corpses) c.sp.destroy();
+    this.corpses = [];
     this.projectilesG.clear();
     this.dropsG.clear();
+    this.shadowsG.clear();
   }
 
   private propsLayer = new Container();
   private portalG = new Graphics();
   private portalPos: { x: number; y: number } | null = null;
   private portalSpin = 0;
+
+  // 프로시저럴 애니메이션 상태 (전부 렌더 전용 — 시뮬레이션 무관)
+  private shadowsG = new Graphics();
+  private shadowJobs: Array<{ x: number; y: number; r: number; lift: number }> = [];
+  private lungeMs = 0; // 공격 런지 잔여(ms)
+  private enemyPrevPos = new Map<number, { x: number; y: number }>();
+  private corpses: Array<{ sp: Sprite; life: number; spin: number }> = [];
+
+  // 공격 순간 호출 (main의 이벤트 배선에서)
+  playerLunge(): void {
+    this.lungeMs = 120;
+  }
+
+  private drawShadows(): void {
+    const g = this.shadowsG;
+    g.clear();
+    for (const s of this.shadowJobs) {
+      const shrink = 1 - Math.min(0.4, s.lift * 0.06); // 떠 있을수록 그림자 축소
+      g.ellipse(s.x, s.y, s.r * 1.05 * shrink, s.r * 0.42 * shrink).fill({
+        color: 0x000000,
+        alpha: 0.32,
+      });
+    }
+    this.shadowJobs = [];
+  }
+
+  private updateCorpses(dtMs: number): void {
+    for (const c of this.corpses) {
+      c.life -= dtMs;
+      const t = Math.max(0, c.life / 400);
+      c.sp.alpha = t * 0.9;
+      c.sp.rotation += c.spin * dtMs * 0.004;
+      c.sp.scale.y = Math.abs(c.sp.scale.y) * 0.985 * Math.sign(c.sp.scale.y);
+      c.sp.position.y += dtMs * 0.015;
+    }
+    this.corpses = this.corpses.filter((c) => {
+      if (c.life > 0) return true;
+      c.sp.destroy();
+      return false;
+    });
+  }
 
   // 은신처 스테이션 등 고정 소품 배치 (던전 교체 시 setDungeon 뒤에 호출)
   setProps(props: Array<{ texKey: keyof typeof TEXTURES; pos: { x: number; y: number } }>): void {
@@ -305,10 +351,12 @@ export class Renderer {
 
   draw(s: GameState, dtMs: number): void {
     this.updateCamera(s, dtMs);
-    this.drawPlayer(s);
+    this.drawPlayer(s, dtMs);
     this.drawEnemies(s);
     this.drawProjectiles(s);
     this.drawDrops(s);
+    this.drawShadows();
+    this.updateCorpses(dtMs);
     this.drawPortal(dtMs);
     for (const glow of this.torchGlows) glow.alpha = 0.8 + Math.random() * 0.2;
     this.effects.tick(dtMs);
@@ -341,10 +389,13 @@ export class Renderer {
           this.world.addChildAt(sp, this.world.getChildIndex(this.dropsG));
           this.dropSprites.set(d.id, sp);
         }
-        sp.position.set(d.pos.x, d.pos.y + Math.sin(s.tick * 0.1 + d.id) * 3);
+        const bob = Math.sin(s.tick * 0.1 + d.id) * 3;
+        sp.position.set(d.pos.x, d.pos.y + bob);
+        this.shadowJobs.push({ x: d.pos.x, y: d.pos.y + 10, r: 8, lift: 3 - bob });
       } else {
         g.circle(d.pos.x, d.pos.y, 7 * pulse).fill(0xb08d3e);
         g.circle(d.pos.x, d.pos.y, 3.5 * pulse).fill(0xe6c878);
+        this.shadowJobs.push({ x: d.pos.x, y: d.pos.y + 6, r: 6, lift: 0 });
       }
     }
     for (const [id, sp] of this.dropSprites) {
@@ -368,19 +419,43 @@ export class Renderer {
     this.light.alpha = 0.92 + Math.random() * 0.08;
   }
 
-  private drawPlayer(s: GameState): void {
+  private drawPlayer(s: GameState, dtMs: number): void {
     const p = s.player;
     const g = this.playerSprite;
-    g.position.set(p.pos.x, p.pos.y);
     const scale = 64 / 256; // 표시 높이 약 64px
     const faceLeft = Math.cos(p.facing) < 0;
-    g.scale.set(faceLeft ? -scale : scale, scale);
-    // 이동 기울임 + 걸음 바운스 (틱 기반이라 히트스톱 때 자연히 멈춘다)
     const moving = Math.abs(p.vel.x) + Math.abs(p.vel.y) > 1;
-    g.rotation = (faceLeft ? -1 : 1) * (moving ? 0.05 : 0);
-    g.position.y += moving ? Math.sin(s.tick * 0.35) * 1.6 : 0;
+    const dashing = p.dashTimer > 0;
+
+    // 걸음 위상은 시뮬레이션 tick 기반 — 히트스톱 때 자동으로 함께 멈춘다
+    const phase = s.tick * 0.3;
+    const hop = moving && !dashing ? Math.abs(Math.sin(phase)) * 3.5 : 0;
+    // 착지 스쿼시(이동) / 호흡(정지) — 부피 보존을 위해 x·y 역보정
+    const squash = moving
+      ? 1 + Math.sin(phase * 2) * 0.05
+      : 1 + Math.sin(s.tick * 0.05) * 0.015;
+    let sx = scale * (2 - squash);
+    let sy = scale * squash;
+    if (dashing) {
+      sx *= 1.18;
+      sy *= 0.85;
+    }
+    g.scale.set(faceLeft ? -sx : sx, sy);
+
+    // 공격 런지: 조준 방향으로 짧게 전진 + 회전 킥
+    this.lungeMs = Math.max(0, this.lungeMs - dtMs);
+    const lunge = this.lungeMs / 120; // 1→0
+    const lx = Math.cos(p.facing) * lunge * 9;
+    const ly = Math.sin(p.facing) * lunge * 9;
+
+    g.position.set(p.pos.x + lx, p.pos.y - hop + ly);
+    g.rotation =
+      (faceLeft ? -1 : 1) * ((moving ? Math.sin(phase) * 0.055 : 0) + lunge * 0.12);
+
     const blink = p.invulnTimer > 0 && Math.floor(p.invulnTimer * 20) % 2 === 0;
-    g.alpha = p.dashTimer > 0 ? 0.55 : blink ? 0.4 : 1;
+    g.alpha = dashing ? 0.55 : blink ? 0.4 : 1;
+
+    this.shadowJobs.push({ x: p.pos.x, y: p.pos.y + 9, r: p.radius, lift: hop });
   }
 
   private drawEnemies(s: GameState): void {
@@ -401,17 +476,42 @@ export class Renderer {
         this.world.addChildAt(sp, this.world.getChildIndex(this.playerSprite));
         this.enemySprites.set(e.id, sp);
       }
-      sp.position.set(e.pos.x, e.pos.y + Math.sin(s.tick * 0.2 + e.id) * 1.2);
+      // 이동 감지: 프레임 간 위치 델타 (넉백·추적 모두 반영)
+      const prev = this.enemyPrevPos.get(e.id) ?? { x: e.pos.x, y: e.pos.y };
+      const movingDist = Math.hypot(e.pos.x - prev.x, e.pos.y - prev.y);
+      this.enemyPrevPos.set(e.id, { x: e.pos.x, y: e.pos.y });
+      const moving = movingDist > 0.15;
+
+      const phase = s.tick * 0.24 + e.id * 1.7;
+      const hop = moving ? Math.abs(Math.sin(phase)) * 2.5 : 0;
+      const wobble = moving ? Math.sin(phase) * 0.09 : Math.sin(s.tick * 0.04 + e.id) * 0.02;
+
       const scale = displaySize[e.kind] / 256;
       const faceLeft = s.player.pos.x < e.pos.x;
-      const pop = 1 + e.hitFlash * 2; // 피격 순간 살짝 커졌다 복귀
-      sp.scale.set((faceLeft ? -scale : scale) * pop, scale * pop);
+      // 피격: 방향성 스쿼시(납작+팽창) — 단순 팽창보다 타격이 실린 느낌
+      const flash = e.hitFlash > 0 ? e.hitFlash / 0.1 : 0;
+      const sx = scale * (1 + flash * 0.35);
+      const sy = scale * (1 - flash * 0.22);
+      sp.position.set(e.pos.x, e.pos.y - hop);
+      sp.scale.set(faceLeft ? -sx : sx, sy);
+      sp.rotation = wobble;
       sp.tint = e.hitFlash > 0 ? 0xff6a5a : 0xffffff;
+
+      this.shadowJobs.push({ x: e.pos.x, y: e.pos.y + 8, r: e.radius, lift: hop });
     }
     for (const [id, sp] of this.enemySprites) {
       if (!alive.has(id)) {
+        // 시체 페이드: 같은 텍스처·변환으로 쓰러지는 연출
+        const corpse = new Sprite(sp.texture);
+        corpse.anchor.set(0.5, 0.62);
+        corpse.position.copyFrom(sp.position);
+        corpse.scale.copyFrom(sp.scale);
+        corpse.rotation = sp.rotation;
+        this.world.addChildAt(corpse, this.world.getChildIndex(this.playerSprite));
+        this.corpses.push({ sp: corpse, life: 400, spin: sp.scale.x >= 0 ? 1 : -1 });
         sp.destroy();
         this.enemySprites.delete(id);
+        this.enemyPrevPos.delete(id);
       }
     }
   }

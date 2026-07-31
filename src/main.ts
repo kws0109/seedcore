@@ -247,6 +247,7 @@ async function boot(): Promise<void> {
         switch (ev.type) {
           case 'playerAttack':
             fx.slash(p.pos.x, p.pos.y, ev.angle, T.attackRange, T.attackArc);
+            renderer.playerLunge();
             break;
           case 'enemyHit':
             fx.burst(ev.pos.x, ev.pos.y, 0x8a2424, 6, 40);
