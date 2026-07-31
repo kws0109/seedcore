@@ -1,4 +1,4 @@
-import { mulberry32, type Rng } from '../engine/rng';
+import { deriveSeed, mulberry32, type Rng } from '../engine/rng';
 import type { Vec } from '../engine/math';
 import type { EnemyKind } from './state';
 
@@ -112,7 +112,10 @@ function randomPosInRoom(rng: Rng, r: Room): Vec {
 }
 
 export function generateDungeon(seed: number): Dungeon {
-  const rng = mulberry32(seed);
+  // 독립 스트림: 한 스트림의 로직 변경이 다른 스트림 결과를 흔들지 않는다 (코어 공유 안정성)
+  const rng = mulberry32(deriveSeed(seed, 'layout'));
+  const spawnRng = mulberry32(deriveSeed(seed, 'spawn'));
+  const lootRng = mulberry32(deriveSeed(seed, 'loot'));
   const tiles = new Uint8Array(GRID * GRID); // 전부 벽
 
   // 방 배치 (rejection sampling)
@@ -157,22 +160,34 @@ export function generateDungeon(seed: number): Dungeon {
     }
   }
 
-  // 스폰 (시작 방 제외)
+  // 스폰 (시작 방 제외) — 배치는 spawn 스트림, 드롭은 loot 스트림
   for (let i = 1; i < rooms.length; i++) {
     const room = rooms[i];
-    const ghouls = 2 + Math.floor(rng() * 2); // 2~3
+    const ghouls = 2 + Math.floor(spawnRng() * 2); // 2~3
     for (let g = 0; g < ghouls; g++) {
-      d.enemies.push({ kind: 'ghoul', pos: randomPosInRoom(rng, room), drop: rollDrop(rng, 'ghoul') });
+      d.enemies.push({
+        kind: 'ghoul',
+        pos: randomPosInRoom(spawnRng, room),
+        drop: rollDrop(lootRng, 'ghoul'),
+      });
     }
-    if (rng() < 0.4) {
-      d.enemies.push({ kind: 'archer', pos: randomPosInRoom(rng, room), drop: rollDrop(rng, 'archer') });
+    if (spawnRng() < 0.4) {
+      d.enemies.push({
+        kind: 'archer',
+        pos: randomPosInRoom(spawnRng, room),
+        drop: rollDrop(lootRng, 'archer'),
+      });
     }
     if (i === deepest) {
-      d.enemies.push({ kind: 'brute', pos: randomPosInRoom(rng, room), drop: rollDrop(rng, 'brute') });
+      d.enemies.push({
+        kind: 'brute',
+        pos: randomPosInRoom(spawnRng, room),
+        drop: rollDrop(lootRng, 'brute'),
+      });
     }
   }
 
-  // 횃불: 방마다 1개, 벽에 붙은 바닥 타일
+  // 횃불: 방마다 1개 (layout 스트림)
   for (const room of rooms) {
     const tx = room.x + 1 + Math.floor(rng() * (room.w - 2));
     d.torches.push({ x: (tx + 0.5) * TILE, y: (room.y + 0.35) * TILE });
