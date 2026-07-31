@@ -13,6 +13,8 @@ async function boot(): Promise<void> {
   const input = new Input();
   input.attach(document.body);
 
+  const hpfill = document.getElementById('hpfill') as HTMLDivElement;
+
   const state = createState();
   // 프로토타입용 시드 스폰. 던전 생성 단계에서 대체된다.
   const rng = mulberry32(2026);
@@ -57,6 +59,7 @@ async function boot(): Promise<void> {
             break;
         }
       }
+      hpfill.style.width = `${Math.max(0, (state.player.hp / state.player.maxHp) * 100)}%`;
     },
     (dtMs) => renderer.draw(state, dtMs),
   );
