@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { generateDungeon, isWall, TILE } from '../src/game/dungeon';
+import { createHideout, HIDEOUT_STATIONS, PORTAL_POS } from '../src/game/hideout';
 import { step } from '../src/game/sim';
 import { createStateFromDungeon, idleInput } from '../src/game/state';
 
@@ -103,6 +104,25 @@ describe('던전 생성', () => {
     expect(brutes[0].drop.item).not.toBeNull(); // 브루트는 아이템 100%
     for (const s of d.enemies) {
       expect(s.drop.gold).toBeGreaterThan(0);
+    }
+  });
+});
+
+describe('은신처', () => {
+  it('몬스터가 없고 결정론적이다', () => {
+    const a = createHideout();
+    const b = createHideout();
+    expect(a.enemies).toHaveLength(0);
+    expect(JSON.stringify({ ...a, tiles: Array.from(a.tiles) })).toEqual(
+      JSON.stringify({ ...b, tiles: Array.from(b.tiles) }),
+    );
+  });
+
+  it('스폰·스테이션·포탈 위치가 전부 바닥 위에 있다', () => {
+    const h = createHideout();
+    const spots = [h.spawn, PORTAL_POS, ...HIDEOUT_STATIONS.map((s) => s.pos)];
+    for (const p of spots) {
+      expect(isWall(h, Math.floor(p.x / TILE), Math.floor(p.y / TILE))).toBe(false);
     }
   });
 });

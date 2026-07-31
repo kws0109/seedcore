@@ -19,6 +19,10 @@ const TEXTURES = {
   mushroom: 'prop-mushroom',
   coral: 'prop-coral',
   core: 'core-crystal',
+  device: 'prop-device',
+  merchant: 'prop-merchant',
+  chest: 'prop-chest',
+  anvil: 'prop-anvil',
 } as const;
 
 // 바이옴별 팔레트·텍스처. 지형 프리셋은 dungeon.ts, 시각 연출은 여기.
@@ -255,12 +259,57 @@ export class Renderer {
     this.dropsG.clear();
   }
 
+  private propsLayer = new Container();
+  private portalG = new Graphics();
+  private portalPos: { x: number; y: number } | null = null;
+  private portalSpin = 0;
+
+  // 은신처 스테이션 등 고정 소품 배치 (던전 교체 시 setDungeon 뒤에 호출)
+  setProps(props: Array<{ texKey: keyof typeof TEXTURES; pos: { x: number; y: number } }>): void {
+    this.propsLayer.removeChildren().forEach((c) => c.destroy());
+    if (!this.propsLayer.parent) {
+      this.world.addChildAt(this.propsLayer, this.world.getChildIndex(this.playerSprite));
+      this.world.addChildAt(this.portalG, this.world.getChildIndex(this.playerSprite));
+    }
+    for (const p of props) {
+      const sp = new Sprite(this.textures[p.texKey]);
+      sp.anchor.set(0.5, 0.7);
+      sp.scale.set(84 / 256);
+      sp.position.set(p.pos.x, p.pos.y);
+      this.propsLayer.addChild(sp);
+    }
+  }
+
+  setPortal(pos: { x: number; y: number } | null): void {
+    this.portalPos = pos;
+    if (!pos) this.portalG.clear();
+  }
+
+  private drawPortal(dtMs: number): void {
+    if (!this.portalPos) return;
+    this.portalSpin += dtMs * 0.004;
+    const g = this.portalG;
+    const { x, y } = this.portalPos;
+    g.clear();
+    g.circle(x, y, 26).fill({ color: 0x46f0c8, alpha: 0.12 });
+    for (let ring = 0; ring < 2; ring++) {
+      const r = 20 + ring * 8;
+      const spin = this.portalSpin * (ring === 0 ? 1 : -0.7);
+      for (let i = 0; i < 3; i++) {
+        const a = spin + (i * Math.PI * 2) / 3;
+        g.arc(x, y, r, a, a + 1.4).stroke({ color: 0x6affdd, width: 3 - ring, alpha: 0.85 });
+      }
+    }
+    g.circle(x, y, 5 + Math.sin(this.portalSpin * 3) * 2).fill({ color: 0xd8fff4, alpha: 0.9 });
+  }
+
   draw(s: GameState, dtMs: number): void {
     this.updateCamera(s, dtMs);
     this.drawPlayer(s);
     this.drawEnemies(s);
     this.drawProjectiles(s);
     this.drawDrops(s);
+    this.drawPortal(dtMs);
     for (const glow of this.torchGlows) glow.alpha = 0.8 + Math.random() * 0.2;
     this.effects.tick(dtMs);
   }
