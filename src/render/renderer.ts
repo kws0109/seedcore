@@ -552,7 +552,15 @@ export class Renderer {
         }
         root.scale.set(displayScale[e.kind]);
         this.entityLayer.addChild(root);
-        entry = { root, char, weapon, lastDir: 0, stillFrames: 99, striking: false };
+        // 초기 방향은 개체별 분산 — 스폰 직후 전원이 3시 방향(행 0)을 보는 인위적 정렬 방지
+        entry = {
+          root,
+          char,
+          weapon,
+          lastDir: e.id % this.enemyAnim[e.kind].dirs,
+          stillFrames: 99,
+          striking: false,
+        };
         this.enemySprites.set(e.id, entry);
       }
       // 이동 감지: 프레임 간 위치 델타 (넉백·추적 모두 반영)
@@ -596,7 +604,9 @@ export class Renderer {
         anim.dirs,
       );
       if (clip === 'attack') dir = toPlayerDir;
-      else if (clip === 'walk' && e.hitFlash === 0 && moving) {
+      else if (clip === 'walk' && e.hitFlash === 0 && movingDist > 0.25) {
+        // 실제 이동 델타가 있을 때만 방향 갱신 — 델타 0 프레임에서 atan2(0,0)=0(3시 방향)으로
+        // 스냅되는 버그 방지. 정지 유예 구간에는 마지막 방향을 유지한다.
         dir = dirFromAngle(Math.atan2(deltaY, deltaX), anim.dirs);
       } else if (clip === 'idle' && e.aggro) dir = toPlayerDir;
       entry.lastDir = dir;
