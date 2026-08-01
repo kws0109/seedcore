@@ -130,7 +130,10 @@ export class Renderer {
   private playerAnim!: AnimSet;
   private enemyAnim!: Record<EnemyKind, AnimSet>;
   private slashMs = 0; // 슬래시 원샷 재생 잔여(ms)
-  private enemySprites = new Map<number, { root: Container; char: Sprite; weapon: Sprite | null }>();
+  private enemySprites = new Map<
+    number,
+    { root: Container; char: Sprite; weapon: Sprite | null; lastDir: number }
+  >();
   private walls = new Graphics(); // 던전당 1회 빌드
   private torchLayer = new Container();
   private torchGlows: Sprite[] = [];
@@ -538,12 +541,14 @@ export class Renderer {
         root.scale.set(displayScale[e.kind]);
         // 플레이어 스프라이트 바로 아래 레이어에 삽입
         this.world.addChildAt(root, this.world.getChildIndex(this.playerSprite));
-        entry = { root, char, weapon };
+        entry = { root, char, weapon, lastDir: 0 };
         this.enemySprites.set(e.id, entry);
       }
       // 이동 감지: 프레임 간 위치 델타 (넉백·추적 모두 반영)
       const prev = this.enemyPrevPos.get(e.id) ?? { x: e.pos.x, y: e.pos.y };
-      const movingDist = Math.hypot(e.pos.x - prev.x, e.pos.y - prev.y);
+      const deltaX = e.pos.x - prev.x;
+      const deltaY = e.pos.y - prev.y;
+      const movingDist = Math.hypot(deltaX, deltaY);
       this.enemyPrevPos.set(e.id, { x: e.pos.x, y: e.pos.y });
       const moving = movingDist > 0.15;
 
@@ -560,7 +565,18 @@ export class Renderer {
       const spec = anim.clips[clip];
       // 개체별 위상 오프셋으로 군집 동기화 방지. tick 기반 → 히트스톱 동기
       const frame = Math.floor((s.tick / 60) * spec.fps + e.id * 1.7) % spec.frames;
-      const dir = dirFromAngle(Math.atan2(p.pos.y - e.pos.y, p.pos.x - e.pos.x), anim.dirs);
+      // 방향: 걷기=이동 방향(문워크 방지), 공격=플레이어, 정지=어그로면 플레이어·아니면 유지.
+      // 피격 넉백으로 밀리는 동안엔 방향을 바꾸지 않는다.
+      let dir = entry.lastDir;
+      const toPlayerDir = dirFromAngle(
+        Math.atan2(p.pos.y - e.pos.y, p.pos.x - e.pos.x),
+        anim.dirs,
+      );
+      if (clip === 'attack') dir = toPlayerDir;
+      else if (clip === 'walk' && e.hitFlash === 0 && moving) {
+        dir = dirFromAngle(Math.atan2(deltaY, deltaX), anim.dirs);
+      } else if (clip === 'idle' && e.aggro) dir = toPlayerDir;
+      entry.lastDir = dir;
       entry.char.texture = anim.tex[clip].char[dir][frame];
       if (entry.weapon && anim.tex[clip].weapon) {
         entry.weapon.texture = anim.tex[clip].weapon[dir][frame];
