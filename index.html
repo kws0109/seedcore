@@ -113,6 +113,21 @@
       #code-entry.hidden {
         display: none;
       }
+      #zoom {
+        position: fixed;
+        bottom: 40px;
+        right: 16px;
+        z-index: 10;
+        padding: 4px 10px;
+        color: #d8cdb8;
+        background: rgba(16, 13, 10, 0.85);
+        border: 1px solid #4a423a;
+        font-family: monospace;
+        font-size: 12px;
+      }
+      #zoom.hidden {
+        display: none;
+      }
       #prompt {
         position: fixed;
         bottom: 64px;
@@ -289,8 +304,9 @@
         </div>
       </div>
     </div>
-    <div id="help">WASD 이동 · 커서 조준 자동 공격 · 스페이스 대시 · E 상호작용</div>
+    <div id="help">WASD 이동 · 커서 조준 자동 공격 · 스페이스 대시 · E 상호작용 · 휠 줌</div>
     <div id="prompt" class="hidden"></div>
+    <div id="zoom" class="hidden"></div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

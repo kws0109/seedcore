@@ -33,6 +33,32 @@ async function boot(): Promise<void> {
   const overlayBody = document.getElementById('overlay-body') as HTMLParagraphElement;
   const overlayHint = document.getElementById('overlay-hint') as HTMLParagraphElement;
 
+  // 카메라 줌: 휠로 조절, localStorage에 유지 (표시 설정이라 메타 저장과 분리)
+  const zoomEl = document.getElementById('zoom') as HTMLDivElement;
+  try {
+    const stored = Number(localStorage.getItem('seedcore.zoom'));
+    if (stored > 0) renderer.setZoom(stored);
+  } catch {
+    // 저장 불가 환경(시크릿 모드 등) — 기본값 사용
+  }
+  let zoomToast = 0;
+  window.addEventListener(
+    'wheel',
+    (e) => {
+      const z = renderer.setZoom(renderer.getZoom() * (e.deltaY < 0 ? 1.1 : 1 / 1.1));
+      try {
+        localStorage.setItem('seedcore.zoom', z.toFixed(2));
+      } catch {
+        // 무시
+      }
+      zoomEl.textContent = `줌 ${z.toFixed(2)}×`;
+      zoomEl.classList.remove('hidden');
+      window.clearTimeout(zoomToast);
+      zoomToast = window.setTimeout(() => zoomEl.classList.add('hidden'), 1200);
+    },
+    { passive: true },
+  );
+
   const meta: MetaState = loadMeta();
   let mode: 'hub' | 'dungeon' = 'hub';
   let seed = 0;

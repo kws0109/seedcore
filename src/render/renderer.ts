@@ -33,7 +33,10 @@ const BASE = import.meta.env.BASE_URL;
 // 시뮬레이션은 압축 없는 정사각 좌표계 그대로 — 투영은 순수 렌더 계층.
 export const CAM_TILT = (38 * Math.PI) / 180;
 const PROJ = Math.sin(CAM_TILT); // 지면 y 압축률 ≈ 0.616
-const ZOOM = 3.25; // 카메라 줌 — 사용자 실측 프레이밍(브라우저 250% 확대 상태 기준)
+// 카메라 줌 — 런타임 조절 가능(마우스 휠). 값은 setZoom으로 갱신되고 매 프레임 반영된다.
+const ZOOM_DEFAULT = 2.2;
+const ZOOM_MIN = 1.2;
+const ZOOM_MAX = 4;
 const WALL_H = 48; // 벽 높이(월드 단위)
 const WALL_RISE = WALL_H * Math.cos(CAM_TILT); // 벽 상단이 화면에서 솟는 픽셀
 const WALL_RISE_L = WALL_RISE / PROJ; // 위 상승량의 월드-로컬 환산
@@ -194,12 +197,12 @@ export class Renderer {
 
     // 바닥: 화면 고정 타일링, 카메라 오프셋으로 스크롤. y는 투영 압축분만큼 눌러 지면 원근 일치.
     this.floor = new TilingSprite({ texture: this.textures.floor });
-    this.floor.tileScale.set(0.5 * ZOOM, 0.5 * ZOOM * PROJ); // 512px 원본 → 256px 타일
+    this.floor.tileScale.set(0.5 * this.zoom, 0.5 * this.zoom * PROJ); // 512px 원본 → 256px 타일
     this.floor.tint = 0x9a938a; // 살짝 어둡게
     this.app.stage.addChild(this.floor);
 
     this.app.stage.addChild(this.world);
-    this.world.scale.set(ZOOM, ZOOM * PROJ); // 줌 + 지면 압축 — 월드 자식은 심 좌표 그대로
+    this.world.scale.set(this.zoom, this.zoom * PROJ); // 줌 + 지면 압축 — 월드 자식은 심 좌표 그대로
 
     // 플레이어 광원: 화면 중앙 고정(카메라가 플레이어를 중앙에 두므로), 가산 블렌드
     this.light = new Sprite(
@@ -285,9 +288,21 @@ export class Renderer {
     this.vignette.height = cover;
   }
 
+  private zoom = ZOOM_DEFAULT;
+
+  getZoom(): number {
+    return this.zoom;
+  }
+
+  // 클램프 후 실제 적용값을 돌려준다 — 호출자가 저장·표시에 그대로 쓴다
+  setZoom(z: number): number {
+    this.zoom = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, z));
+    return this.zoom;
+  }
+
   toWorld = (sx: number, sy: number): { x: number; y: number } => ({
-    x: (sx - this.world.position.x) / ZOOM,
-    y: (sy - this.world.position.y) / (ZOOM * PROJ), // 줌·지면 압축 역적용
+    x: (sx - this.world.position.x) / this.zoom,
+    y: (sy - this.world.position.y) / (this.zoom * PROJ), // 줌·지면 압축 역적용
   });
 
   private lightTexCache = new Map<Biome, Texture>();
@@ -541,9 +556,9 @@ export class Renderer {
     this.updateCamera(s, dtMs);
     // fog·광원 크기를 시야 배율에 맞춰 갱신 — 시야 아이템이 visionMul을 올리면 즉시 반영
     const vision = T.visionRange * s.player.visionMul;
-    this.fog.width = vision * 4 * ZOOM;
-    this.fog.height = vision * 4 * ZOOM * PROJ;
-    this.light.width = this.light.height = vision * 2.4 * ZOOM;
+    this.fog.width = vision * 4 * this.zoom;
+    this.fog.height = vision * 4 * this.zoom * PROJ;
+    this.light.width = this.light.height = vision * 2.4 * this.zoom;
     this.drawPlayer(s, dtMs);
     this.drawAim(s);
     this.drawEnemies(s);
@@ -648,8 +663,11 @@ export class Renderer {
     // 렌더 전용 난수 — 시뮬레이션 결정론과 무관
     const ox = (Math.random() - 0.5) * this.shake;
     const oy = (Math.random() - 0.5) * this.shake;
-    const camX = window.innerWidth / 2 - s.player.pos.x * ZOOM + ox;
-    const camY = window.innerHeight / 2 - s.player.pos.y * ZOOM * PROJ + oy;
+    // 줌은 런타임 가변 — 매 프레임 스케일·카메라에 반영
+    this.world.scale.set(this.zoom, this.zoom * PROJ);
+    this.floor.tileScale.set(0.5 * this.zoom, 0.5 * this.zoom * PROJ);
+    const camX = window.innerWidth / 2 - s.player.pos.x * this.zoom + ox;
+    const camY = window.innerHeight / 2 - s.player.pos.y * this.zoom * PROJ + oy;
     this.world.position.set(camX, camY);
     this.floor.tilePosition.set(camX, camY);
     // 광원 미세 흔들림(횃불 느낌)
