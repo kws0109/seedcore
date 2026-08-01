@@ -1,7 +1,8 @@
 {
   "style": "dark medieval fantasy game sprite, 3/4 top-down view, painterly grim texture, muted desaturated palette of ash grey, bone white, dried blood red and tarnished brass, torch-lit mood, single centered subject filling most of the frame, no text, no watermark, isolated on transparent background",
   "styles": {
-    "floor": "dark medieval fantasy game ground texture, viewed from directly above, painterly grim texture, muted desaturated palette, seamless and tileable, the entire frame completely filled edge to edge with ground surface, no isolated objects, no empty areas, no text, no watermark"
+    "floor": "dark medieval fantasy game ground texture, viewed from directly above, painterly grim texture, muted desaturated palette, seamless and tileable, the entire frame completely filled edge to edge with ground surface, no isolated objects, no empty areas, no text, no watermark",
+    "wall": "dark medieval fantasy game wall texture, vertical rock surface viewed straight on at eye level, painterly grim texture, muted desaturated palette, seamless horizontally tileable, the entire frame completely filled edge to edge with wall surface, no isolated objects, no floor, no ceiling, no text, no watermark"
   },
   "output": "public/assets",
   "assets": [
@@ -95,6 +96,24 @@
     {
       "id": "weapon-maul",
       "prompt": "a massive two-handed iron maul with a scorched blunt head and iron-banded haft, a single isolated weapon item oriented vertically, nothing else in the image"
+    },
+    {
+      "id": "wall-stone",
+      "styleKey": "wall",
+      "opaque": true,
+      "prompt": "ancient crypt stone brick wall, weathered rectangular blocks with dark mortar seams, ash grey and bone tones, faint torch-lit warmth from above"
+    },
+    {
+      "id": "wall-cave",
+      "styleKey": "wall",
+      "opaque": true,
+      "prompt": "rough underground cave rock wall, jagged horizontal strata and cracks, deep mossy green-grey tones, faint bioluminescent tint from above"
+    },
+    {
+      "id": "wall-abyss",
+      "styleKey": "wall",
+      "opaque": true,
+      "prompt": "deep sea trench rock wall, dark basalt encrusted with pale barnacles and faint coral patches, cold blue-grey tones, dim light from above"
     }
   ]
 }

@@ -1,4 +1,13 @@
-import { Application, Assets, Container, Graphics, Sprite, Texture, TilingSprite } from 'pixi.js';
+import {
+  Application,
+  Assets,
+  Container,
+  Graphics,
+  Matrix,
+  Sprite,
+  Texture,
+  TilingSprite,
+} from 'pixi.js';
 import { isWall, TILE, type Biome, type Dungeon } from '../game/dungeon';
 import type { EnemyKind, GameState } from '../game/state';
 import {
@@ -22,23 +31,10 @@ const BASE = import.meta.env.BASE_URL;
 // 시뮬레이션은 압축 없는 정사각 좌표계 그대로 — 투영은 순수 렌더 계층.
 export const CAM_TILT = (38 * Math.PI) / 180;
 const PROJ = Math.sin(CAM_TILT); // 지면 y 압축률 ≈ 0.616
+const ZOOM = 1.3; // 카메라 줌 — 디아블로식 프레이밍(캐릭터 크게, 시야 좁게)
 const WALL_H = 48; // 벽 높이(월드 단위)
 const WALL_RISE = WALL_H * Math.cos(CAM_TILT); // 벽 상단이 화면에서 솟는 픽셀
 const WALL_RISE_L = WALL_RISE / PROJ; // 위 상승량의 월드-로컬 환산
-
-function lerpColor(a: number, b: number, t: number): number {
-  const ar = (a >> 16) & 255;
-  const ag = (a >> 8) & 255;
-  const ab = a & 255;
-  const br = (b >> 16) & 255;
-  const bg = (b >> 8) & 255;
-  const bb = b & 255;
-  return (
-    (Math.round(ar + (br - ar) * t) << 16) |
-    (Math.round(ag + (bg - ag) * t) << 8) |
-    Math.round(ab + (bb - ab) * t)
-  );
-}
 
 const TEXTURES = {
   player: 'player-knight',
@@ -56,11 +52,15 @@ const TEXTURES = {
   merchant: 'prop-merchant',
   chest: 'prop-chest',
   anvil: 'prop-anvil',
+  wallStone: 'wall-stone',
+  wallCave: 'wall-cave',
+  wallAbyss: 'wall-abyss',
 } as const;
 
 // 바이옴별 팔레트·텍스처. 지형 프리셋은 dungeon.ts, 시각 연출은 여기.
 interface BiomeVisual {
   floorKey: 'floor' | 'floorCave' | 'floorAbyss';
+  wallKey: 'wallStone' | 'wallCave' | 'wallAbyss';
   floorTint: number;
   wallFill: number;
   wallHighlight: number;
@@ -72,6 +72,7 @@ interface BiomeVisual {
 const BIOME_VISUALS: Record<Biome, BiomeVisual> = {
   crypt: {
     floorKey: 'floor',
+    wallKey: 'wallStone',
     floorTint: 0x9a938a,
     wallFill: 0x1a1512,
     wallHighlight: 0x322a20,
@@ -89,6 +90,7 @@ const BIOME_VISUALS: Record<Biome, BiomeVisual> = {
   },
   cavern: {
     floorKey: 'floorCave',
+    wallKey: 'wallCave',
     floorTint: 0x8fa094,
     wallFill: 0x131711,
     wallHighlight: 0x27301f,
@@ -106,6 +108,7 @@ const BIOME_VISUALS: Record<Biome, BiomeVisual> = {
   },
   abyss: {
     floorKey: 'floorAbyss',
+    wallKey: 'wallAbyss',
     floorTint: 0x8a97a8,
     wallFill: 0x0e141c,
     wallHighlight: 0x223040,
@@ -180,15 +183,19 @@ export class Renderer {
       entries.map(async ([key, name]) => [key, await Assets.load(`${BASE}assets/${name}.webp`)]),
     );
     this.textures = Object.fromEntries(loaded) as Record<keyof typeof TEXTURES, Texture>;
+    // 벽 텍스처는 Graphics 텍스처 필로 타일링되므로 반복 샘플링 필요
+    for (const key of ['wallStone', 'wallCave', 'wallAbyss'] as const) {
+      this.textures[key].source.addressMode = 'repeat';
+    }
 
     // 바닥: 화면 고정 타일링, 카메라 오프셋으로 스크롤. y는 투영 압축분만큼 눌러 지면 원근 일치.
     this.floor = new TilingSprite({ texture: this.textures.floor });
-    this.floor.tileScale.set(0.5, 0.5 * PROJ); // 512px 원본 → 256px 타일
+    this.floor.tileScale.set(0.5 * ZOOM, 0.5 * ZOOM * PROJ); // 512px 원본 → 256px 타일
     this.floor.tint = 0x9a938a; // 살짝 어둡게
     this.app.stage.addChild(this.floor);
 
     this.app.stage.addChild(this.world);
-    this.world.scale.y = PROJ; // 지면 압축 — 월드 자식은 심 좌표 그대로 두면 된다
+    this.world.scale.set(ZOOM, ZOOM * PROJ); // 줌 + 지면 압축 — 월드 자식은 심 좌표 그대로
 
     // 플레이어 광원: 화면 중앙 고정(카메라가 플레이어를 중앙에 두므로), 가산 블렌드
     this.light = new Sprite(
@@ -259,8 +266,8 @@ export class Renderer {
   }
 
   toWorld = (sx: number, sy: number): { x: number; y: number } => ({
-    x: sx - this.world.position.x,
-    y: (sy - this.world.position.y) / PROJ, // 지면 압축 역적용
+    x: (sx - this.world.position.x) / ZOOM,
+    y: (sy - this.world.position.y) / (ZOOM * PROJ), // 줌·지면 압축 역적용
   });
 
   private lightTexCache = new Map<Biome, Texture>();
@@ -283,15 +290,17 @@ export class Renderer {
     const H = d.h * TILE;
     const M = 4000; // 외곽 어둠 마진
     g.rect(-M, -M, W + M * 2, M) // 상
-      .rect(-M, H, W + M * 2, M) // 하
+      // 하 — 최남단 벽 상판이 위로 밀리며 남는 틈까지 덮는다
+      .rect(-M, H - WALL_RISE_L, W + M * 2, M + WALL_RISE_L)
       .rect(-M, 0, M, H) // 좌
       .rect(W, 0, M, H) // 우
-      .fill(vis.wallFill); // 벽 상판과 같은 색 — 맵 경계가 벽 덩어리에 녹아들게
+      .fill(vis.wallFill); // 벽 상판 기본색과 동일 — 맵 경계가 벽 덩어리에 녹아들게
     for (let ty = 0; ty < d.h; ty++) {
       for (let tx = 0; tx < d.w; tx++) {
         if (!isWall(d, tx, ty)) continue;
-        // 평면 암막 언더레이 — 입체 벽 조각 사이 이음새가 바닥 텍스처로 새지 않게 하는 안전망
-        g.rect(tx * TILE, ty * TILE, TILE, TILE).fill(0x0c0a08);
+        // 평면 언더레이 — 입체 벽 조각 사이 이음새로 바닥 텍스처가 새지 않게 하는 안전망.
+        // 상판 기본색과 동일해야 조각이 덮지 못하는 맵 최남단 띠가 이질적으로 보이지 않는다.
+        g.rect(tx * TILE, ty * TILE, TILE, TILE).fill(vis.wallFill);
       }
     }
     // 접지 AO — 벽 입면이 닿는 바닥에 드리우는 그림자 (가장 싼 깊이 단서)
@@ -358,7 +367,14 @@ export class Renderer {
         const x0 = tx * TILE;
         const runW = (end - tx + 1) * TILE;
         const yTop = ty * TILE - WALL_RISE_L;
+        // 상판: 어두운 단색 + 미세 질감 오버레이 — 벽 덩어리는 음영 공간으로 남아야
+        // 바닥과 혼동되지 않는다 (텍스처를 강하게 깔면 "또 다른 바닥"으로 읽힘)
+        const wallTex = this.textures[vis.wallKey];
+        const texM = new Matrix().scale(0.125, 0.125); // 1024px 원본 → 128 월드px 반복
         piece.rect(x0, yTop, runW, TILE).fill(vis.wallFill);
+        piece
+          .rect(x0, yTop, runW, TILE)
+          .fill({ texture: wallTex, matrix: texM, color: 0x8a837a, alpha: 0.14 });
         // 북쪽 모서리 림 — 노출된 모서리(위가 벽이 아님)에만. 내부까지 그리면 벽 덩어리가 줄무늬가 된다.
         for (let rx = tx; rx <= end; rx++) {
           if (isWall(d, rx, ty - 1)) continue;
@@ -377,12 +393,15 @@ export class Renderer {
           const fx0 = fx * TILE;
           const fw = (fe - fx + 1) * TILE;
           const fyTop = (ty + 1) * TILE - WALL_RISE_L;
-          const bands = 8;
+          // 입면: 벽 텍스처(밝게) + 아래로 갈수록 어두워지는 오버레이 — 위에서 내려오는 조명
+          piece
+            .rect(fx0, fyTop, fw, WALL_RISE_L)
+            .fill({ texture: wallTex, matrix: texM, color: vis.floorTint });
+          const bands = 6;
           for (let b = 0; b < bands; b++) {
-            const color = lerpColor(vis.wallHighlight, 0x060504, Math.min(1, (b / bands) * 1.25));
             piece
               .rect(fx0, fyTop + (WALL_RISE_L * b) / bands, fw, WALL_RISE_L / bands + 0.5)
-              .fill(color);
+              .fill({ color: 0x000000, alpha: 0.55 * (b / bands) });
           }
           piece.rect(fx0, fyTop, fw, 2.5).fill({ color: 0xffffff, alpha: 0.1 }); // 상단 조명 림
           fx = fe;
@@ -584,8 +603,8 @@ export class Renderer {
     // 렌더 전용 난수 — 시뮬레이션 결정론과 무관
     const ox = (Math.random() - 0.5) * this.shake;
     const oy = (Math.random() - 0.5) * this.shake;
-    const camX = window.innerWidth / 2 - s.player.pos.x + ox;
-    const camY = window.innerHeight / 2 - s.player.pos.y * PROJ + oy;
+    const camX = window.innerWidth / 2 - s.player.pos.x * ZOOM + ox;
+    const camY = window.innerHeight / 2 - s.player.pos.y * ZOOM * PROJ + oy;
     this.world.position.set(camX, camY);
     this.floor.tilePosition.set(camX, camY);
     // 광원 미세 흔들림(횃불 느낌)
