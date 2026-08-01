@@ -17,6 +17,29 @@ const RARITY_TINT = { common: 0xcfc4a8, rare: 0x6a9ad0, epic: 0xb060d0 } as cons
 
 const BASE = import.meta.env.BASE_URL;
 
+// 축측 투영: 캐릭터 시트를 캡처한 카메라(38°)와 같은 기울기로 지면을 눕힌다.
+// 월드 컨테이너 y를 sin38°로 압축하고, 수직으로 서야 하는 빌보드(캐릭터·소품)만 역보정.
+// 시뮬레이션은 압축 없는 정사각 좌표계 그대로 — 투영은 순수 렌더 계층.
+export const CAM_TILT = (38 * Math.PI) / 180;
+const PROJ = Math.sin(CAM_TILT); // 지면 y 압축률 ≈ 0.616
+const WALL_H = 48; // 벽 높이(월드 단위)
+const WALL_RISE = WALL_H * Math.cos(CAM_TILT); // 벽 상단이 화면에서 솟는 픽셀
+const WALL_RISE_L = WALL_RISE / PROJ; // 위 상승량의 월드-로컬 환산
+
+function lerpColor(a: number, b: number, t: number): number {
+  const ar = (a >> 16) & 255;
+  const ag = (a >> 8) & 255;
+  const ab = a & 255;
+  const br = (b >> 16) & 255;
+  const bg = (b >> 8) & 255;
+  const bb = b & 255;
+  return (
+    (Math.round(ar + (br - ar) * t) << 16) |
+    (Math.round(ag + (bg - ag) * t) << 8) |
+    Math.round(ab + (bb - ab) * t)
+  );
+}
+
 const TEXTURES = {
   player: 'player-knight',
   ghoul: 'enemy-ghoul',
@@ -158,13 +181,14 @@ export class Renderer {
     );
     this.textures = Object.fromEntries(loaded) as Record<keyof typeof TEXTURES, Texture>;
 
-    // 바닥: 화면 고정 타일링, 카메라 오프셋으로 스크롤
+    // 바닥: 화면 고정 타일링, 카메라 오프셋으로 스크롤. y는 투영 압축분만큼 눌러 지면 원근 일치.
     this.floor = new TilingSprite({ texture: this.textures.floor });
-    this.floor.tileScale.set(0.5); // 512px 원본 → 256px 타일
+    this.floor.tileScale.set(0.5, 0.5 * PROJ); // 512px 원본 → 256px 타일
     this.floor.tint = 0x9a938a; // 살짝 어둡게
     this.app.stage.addChild(this.floor);
 
     this.app.stage.addChild(this.world);
+    this.world.scale.y = PROJ; // 지면 압축 — 월드 자식은 심 좌표 그대로 두면 된다
 
     // 플레이어 광원: 화면 중앙 고정(카메라가 플레이어를 중앙에 두므로), 가산 블렌드
     this.light = new Sprite(
@@ -213,6 +237,7 @@ export class Renderer {
       sp.scale.set(0.62); // 128px 셀 → 표시 약 80px
       this.playerSprite.addChild(sp);
     }
+    this.playerSprite.scale.y = 1 / PROJ; // 빌보드 역보정 — 압축 월드 안에서 수직으로 선다
     this.entityLayer.addChild(this.playerSprite);
     this.world.addChild(this.projectilesG);
     this.world.addChild(this.fx); // 이펙트는 엔티티 위에 그린다
@@ -235,7 +260,7 @@ export class Renderer {
 
   toWorld = (sx: number, sy: number): { x: number; y: number } => ({
     x: sx - this.world.position.x,
-    y: sy - this.world.position.y,
+    y: (sy - this.world.position.y) / PROJ, // 지면 압축 역적용
   });
 
   private lightTexCache = new Map<Biome, Texture>();
@@ -261,17 +286,23 @@ export class Renderer {
       .rect(-M, H, W + M * 2, M) // 하
       .rect(-M, 0, M, H) // 좌
       .rect(W, 0, M, H) // 우
-      .fill(0x0c0a08);
+      .fill(vis.wallFill); // 벽 상판과 같은 색 — 맵 경계가 벽 덩어리에 녹아들게
     for (let ty = 0; ty < d.h; ty++) {
       for (let tx = 0; tx < d.w; tx++) {
         if (!isWall(d, tx, ty)) continue;
-        g.rect(tx * TILE, ty * TILE, TILE, TILE).fill(vis.wallFill);
-        if (!isWall(d, tx, ty + 1)) {
-          // 아래가 바닥이면 벽면 하이라이트
-          g.rect(tx * TILE, ty * TILE + TILE - 5, TILE, 5).fill(vis.wallHighlight);
-        }
+        // 평면 암막 언더레이 — 입체 벽 조각 사이 이음새가 바닥 텍스처로 새지 않게 하는 안전망
+        g.rect(tx * TILE, ty * TILE, TILE, TILE).fill(0x0c0a08);
       }
     }
+    // 접지 AO — 벽 입면이 닿는 바닥에 드리우는 그림자 (가장 싼 깊이 단서)
+    for (let ty = 0; ty < d.h; ty++) {
+      for (let tx = 0; tx < d.w; tx++) {
+        if (!isWall(d, tx, ty) || isWall(d, tx, ty + 1)) continue;
+        g.rect(tx * TILE, (ty + 1) * TILE, TILE, 14).fill({ color: 0x000000, alpha: 0.2 });
+        g.rect(tx * TILE, (ty + 1) * TILE, TILE, 6).fill({ color: 0x000000, alpha: 0.28 });
+      }
+    }
+    this.buildWallPieces(d, vis);
 
     this.torchLayer.removeChildren().forEach((c) => c.destroy({ children: false }));
     this.torchGlows = [];
@@ -288,7 +319,7 @@ export class Renderer {
       this.torchGlows.push(glow);
       const prop = new Sprite(this.textures[vis.propKey]);
       prop.anchor.set(0.5, 0.6);
-      prop.scale.set(44 / 256);
+      prop.scale.set(44 / 256, 44 / 256 / PROJ); // 빌보드 역보정
       prop.position.set(t.x, t.y);
       this.torchLayer.addChild(prop);
     }
@@ -303,6 +334,65 @@ export class Renderer {
     this.projectilesG.clear();
     this.dropsG.clear();
     this.shadowsG.clear();
+  }
+
+  private wallPieces: Graphics[] = [];
+
+  // 입체 벽: 행 단위로 병합한 조각을 엔티티 레이어에 y-정렬로 편입한다.
+  // 상판은 화면 위로 WALL_RISE만큼 밀린 지붕(지면 평면 — 월드 압축이 원근 담당),
+  // 남향 입면은 세로 밴드 그라데이션의 수직면. zIndex=남쪽 모서리이므로
+  // 벽 북쪽(뒤)에 선 캐릭터는 벽에 가려진다 — 입체감의 핵심 오클루전.
+  private buildWallPieces(d: Dungeon, vis: BiomeVisual): void {
+    for (const p of this.wallPieces) p.destroy();
+    this.wallPieces = [];
+    for (let ty = 0; ty < d.h; ty++) {
+      let tx = 0;
+      while (tx < d.w) {
+        if (!isWall(d, tx, ty)) {
+          tx++;
+          continue;
+        }
+        let end = tx;
+        while (end + 1 < d.w && isWall(d, end + 1, ty)) end++;
+        const piece = new Graphics();
+        const x0 = tx * TILE;
+        const runW = (end - tx + 1) * TILE;
+        const yTop = ty * TILE - WALL_RISE_L;
+        piece.rect(x0, yTop, runW, TILE).fill(vis.wallFill);
+        // 북쪽 모서리 림 — 노출된 모서리(위가 벽이 아님)에만. 내부까지 그리면 벽 덩어리가 줄무늬가 된다.
+        for (let rx = tx; rx <= end; rx++) {
+          if (isWall(d, rx, ty - 1)) continue;
+          let re = rx;
+          while (re + 1 <= end && !isWall(d, re + 1, ty - 1)) re++;
+          piece
+            .rect(rx * TILE, yTop, (re - rx + 1) * TILE, 4)
+            .fill({ color: vis.wallHighlight, alpha: 0.45 });
+          rx = re;
+        }
+        // 남향 입면 — 아래가 바닥인 구간만. 위 밝음 → 바닥 어둠 5단 밴드
+        for (let fx = tx; fx <= end; fx++) {
+          if (isWall(d, fx, ty + 1)) continue;
+          let fe = fx;
+          while (fe + 1 <= end && !isWall(d, fe + 1, ty + 1)) fe++;
+          const fx0 = fx * TILE;
+          const fw = (fe - fx + 1) * TILE;
+          const fyTop = (ty + 1) * TILE - WALL_RISE_L;
+          const bands = 8;
+          for (let b = 0; b < bands; b++) {
+            const color = lerpColor(vis.wallHighlight, 0x060504, Math.min(1, (b / bands) * 1.25));
+            piece
+              .rect(fx0, fyTop + (WALL_RISE_L * b) / bands, fw, WALL_RISE_L / bands + 0.5)
+              .fill(color);
+          }
+          piece.rect(fx0, fyTop, fw, 2.5).fill({ color: 0xffffff, alpha: 0.1 }); // 상단 조명 림
+          fx = fe;
+        }
+        piece.zIndex = (ty + 1) * TILE;
+        this.entityLayer.addChild(piece);
+        this.wallPieces.push(piece);
+        tx = end + 1;
+      }
+    }
   }
 
   private propSprites: Sprite[] = [];
@@ -328,7 +418,7 @@ export class Renderer {
     g.clear();
     for (const s of this.shadowJobs) {
       const shrink = 1 - Math.min(0.4, s.lift * 0.06); // 떠 있을수록 그림자 축소
-      g.ellipse(s.x, s.y, s.r * 1.05 * shrink, s.r * 0.42 * shrink).fill({
+      g.ellipse(s.x, s.y, s.r * 1.05 * shrink, s.r * 0.68 * shrink).fill({
         color: 0x000000,
         alpha: 0.32,
       });
@@ -360,7 +450,7 @@ export class Renderer {
     for (const p of props) {
       const sp = new Sprite(this.textures[p.texKey]);
       sp.anchor.set(0.5, 0.7);
-      sp.scale.set(84 / 256);
+      sp.scale.set(84 / 256, 84 / 256 / PROJ); // 빌보드 역보정
       sp.position.set(p.pos.x, p.pos.y);
       sp.zIndex = p.pos.y;
       this.entityLayer.addChild(sp);
@@ -414,7 +504,7 @@ export class Renderer {
     const cx = p.pos.x;
     const cy = p.pos.y + 9; // 발밑 그림자 평면과 동일
     const rx = 24;
-    const squash = 0.42; // 그림자 타원과 같은 원근 비율
+    const squash = 1; // 월드 압축이 지면 원근을 만들므로 로컬은 정원 — 화면상 sin38° 타원
     const ry = rx * squash;
 
     g.ellipse(cx, cy, rx, ry).stroke({ color: 0xd8cdb8, width: 1.5, alpha: 0.16 });
@@ -467,7 +557,7 @@ export class Renderer {
         if (!sp) {
           sp = new Sprite(this.textures.core);
           sp.anchor.set(0.5);
-          sp.scale.set(30 / 256);
+          sp.scale.set(30 / 256, 30 / 256 / PROJ); // 빌보드 역보정
           sp.tint = RARITY_TINT[d.item.rarity];
           this.world.addChildAt(sp, this.world.getChildIndex(this.dropsG));
           this.dropSprites.set(d.id, sp);
@@ -495,7 +585,7 @@ export class Renderer {
     const ox = (Math.random() - 0.5) * this.shake;
     const oy = (Math.random() - 0.5) * this.shake;
     const camX = window.innerWidth / 2 - s.player.pos.x + ox;
-    const camY = window.innerHeight / 2 - s.player.pos.y + oy;
+    const camY = window.innerHeight / 2 - s.player.pos.y * PROJ + oy;
     this.world.position.set(camX, camY);
     this.floor.tilePosition.set(camX, camY);
     // 광원 미세 흔들림(횃불 느낌)
@@ -550,7 +640,7 @@ export class Renderer {
           weapon.anchor.set(0.5, 0.72);
           root.addChild(weapon);
         }
-        root.scale.set(displayScale[e.kind]);
+        root.scale.set(displayScale[e.kind], displayScale[e.kind] / PROJ); // 빌보드 역보정
         this.entityLayer.addChild(root);
         // 초기 방향은 개체별 분산 — 스폰 직후 전원이 3시 방향(행 0)을 보는 인위적 정렬 방지
         entry = {
@@ -619,7 +709,8 @@ export class Renderer {
       const flash = e.hitFlash > 0 ? e.hitFlash / 0.1 : 0;
       entry.root.position.set(e.pos.x, e.pos.y);
       entry.root.zIndex = e.pos.y; // y-정렬
-      entry.root.scale.set(displayScale[e.kind] * (1 + flash * 0.18));
+      const pulse = displayScale[e.kind] * (1 + flash * 0.18);
+      entry.root.scale.set(pulse, pulse / PROJ);
       const tint = e.hitFlash > 0 ? 0xff6a5a : 0xffffff;
       entry.char.tint = tint;
       if (entry.weapon) entry.weapon.tint = tint;
