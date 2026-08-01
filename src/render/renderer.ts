@@ -132,7 +132,14 @@ export class Renderer {
   private slashMs = 0; // 슬래시 원샷 재생 잔여(ms)
   private enemySprites = new Map<
     number,
-    { root: Container; char: Sprite; weapon: Sprite | null; lastDir: number }
+    {
+      root: Container;
+      char: Sprite;
+      weapon: Sprite | null;
+      lastDir: number;
+      stillFrames: number;
+      striking: boolean;
+    }
   >();
   private walls = new Graphics(); // 던전당 1회 빌드
   private torchLayer = new Container();
@@ -545,25 +552,37 @@ export class Renderer {
         }
         root.scale.set(displayScale[e.kind]);
         this.entityLayer.addChild(root);
-        entry = { root, char, weapon, lastDir: 0 };
+        entry = { root, char, weapon, lastDir: 0, stillFrames: 99, striking: false };
         this.enemySprites.set(e.id, entry);
       }
       // 이동 감지: 프레임 간 위치 델타 (넉백·추적 모두 반영)
+      // 히스테리시스: 이동 진입은 즉시, 정지 전환은 8프레임 연속 정지 후 —
+      // 임계값 근처 진동(배회 저속·분리 밀림·벽 클램프)이 walk↔idle 클립을
+      // 고속 교차시켜 잔상처럼 보이는 문제를 차단한다.
       const prev = this.enemyPrevPos.get(e.id) ?? { x: e.pos.x, y: e.pos.y };
       const deltaX = e.pos.x - prev.x;
       const deltaY = e.pos.y - prev.y;
       const movingDist = Math.hypot(deltaX, deltaY);
       this.enemyPrevPos.set(e.id, { x: e.pos.x, y: e.pos.y });
-      const moving = movingDist > 0.15;
+      if (movingDist > 0.25) entry.stillFrames = 0;
+      else entry.stillFrames = Math.min(99, entry.stillFrames + 1);
+      const moving = entry.stillFrames < 8;
 
       // 상태 선택: 근접형은 타격 거리, 궁수는 사격 범위에서 공격 클립
       const p = s.player;
       const dist = Math.hypot(p.pos.x - e.pos.x, p.pos.y - e.pos.y);
-      const inStrike =
-        e.aggro &&
-        (e.kind === 'archer'
+      // 공격 자세도 히스테리시스: 진입·이탈 경계를 벌려 접촉 거리 진동에 흔들리지 않게
+      const enterStrike =
+        e.kind === 'archer'
           ? dist <= ENEMIES.archer.preferMax + 60 && !moving
-          : dist <= e.radius + p.radius + 26);
+          : dist <= e.radius + p.radius + 26;
+      const exitStrike =
+        e.kind === 'archer'
+          ? dist > ENEMIES.archer.preferMax + 100 || moving
+          : dist > e.radius + p.radius + 48;
+      if (enterStrike) entry.striking = true;
+      else if (exitStrike) entry.striking = false;
+      const inStrike = e.aggro && entry.striking;
       const clip: EnemyClip = inStrike ? 'attack' : moving ? 'walk' : 'idle';
       const anim = this.enemyAnim[e.kind];
       const spec = anim.clips[clip];
