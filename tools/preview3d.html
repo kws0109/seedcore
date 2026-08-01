@@ -149,10 +149,12 @@
       // 스프라이트 시트 캡처: 4방향(행) × N프레임(열) 그리드.
       // pass='char'는 무기 숨김, pass='weapon'은 캐릭터 메시 숨김(본은 계속 갱신됨).
       // 반환: PNG dataURL — 게임에서 두 시트를 같은 프레임 인덱스로 겹쳐 그린다(무기 교체 설계).
-      // 행 i = 화면 각도 i*(2π/dirs) (0=오른쪽, 시계방향). 실측: yaw = 화면각 - π/2
+      // 행 i = 화면 각도 i*(2π/dirs) (0=오른쪽, y-아래 좌표계).
+      // 정적 리깅 모델 캘리브레이션 실측(2026-08-01): yaw = π/2 - 화면각
+      // (three.js 월드는 y-업이라 화면 좌표계와 회전 방향이 반대 — 이전 공식은 좌우 미러였음)
       window.__captureSheet = (frames = 6, cell = 128, pass = 'char', dirs = 16) => {
         const step = (Math.PI * 2) / dirs;
-        const DIR_YAWS = Array.from({ length: dirs }, (_, i) => i * step - Math.PI / 2);
+        const DIR_YAWS = Array.from({ length: dirs }, (_, i) => Math.PI / 2 - i * step);
         const model = pivot.children[0];
         const meshes = [];
         model.traverse((o) => {

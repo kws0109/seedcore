@@ -14,7 +14,7 @@ if (!KEY) {
 }
 
 // Meshy 애니메이션 라이브러리 액션 ID
-const CLIPS = { idle: 0, walk: 30, walk2: 1, attack: 4, slash: 97, death: 8 };
+const CLIPS = { idle: 0, idle2: 11, idle3: 12, walk: 30, walk2: 1, attack: 4, slash: 97, death: 8 };
 
 const [id, clipArg] = process.argv.slice(2);
 if (!id) {

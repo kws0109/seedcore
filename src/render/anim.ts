@@ -14,10 +14,10 @@ export const CLIPS: Record<ClipName, { frames: number; fps: number; loop: boolea
 };
 
 // facing(라디안, y축 아래 양수, 0=오른쪽) → 방향 행 (가장 가까운 22.5° 스텝)
-// +DIR_ROWS/2: 시트 yaw 기준과 화면 기준의 180° 위상차 실측 보정 (사용자 플레이 검증)
+// 시트 캡처가 정적 모델 캘리브레이션 기준으로 수정되어 보정 상수 불필요
 export function dirFromAngle(a: number): number {
   const step = (Math.PI * 2) / DIR_ROWS;
-  return ((Math.round(a / step) + DIR_ROWS / 2) % DIR_ROWS + DIR_ROWS) % DIR_ROWS;
+  return ((Math.round(a / step) % DIR_ROWS) + DIR_ROWS) % DIR_ROWS;
 }
 
 export interface ClipTextures {
