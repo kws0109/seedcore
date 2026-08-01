@@ -146,6 +146,41 @@
         return out;
       };
 
+      // 스프라이트 시트 캡처: 4방향(행) × N프레임(열) 그리드.
+      // pass='char'는 무기 숨김, pass='weapon'은 캐릭터 메시 숨김(본은 계속 갱신됨).
+      // 반환: PNG dataURL — 게임에서 두 시트를 같은 프레임 인덱스로 겹쳐 그린다(무기 교체 설계).
+      const DIR_YAWS = [0, Math.PI / 2, Math.PI, -Math.PI / 2]; // down, left?, up, right? — 실측 확인용 순서
+      window.__captureSheet = (frames = 6, cell = 128, pass = 'char') => {
+        const model = pivot.children[0];
+        const meshes = [];
+        model.traverse((o) => {
+          if (o.isMesh || o.isSkinnedMesh) meshes.push(o);
+        });
+        const weaponGrip = window.__weaponGrip;
+        const weaponMeshes = [];
+        if (weaponGrip) weaponGrip.traverse((o) => {
+          if (o.isMesh) weaponMeshes.push(o);
+        });
+        const charMeshes = meshes.filter((m) => !weaponMeshes.includes(m));
+        for (const m of charMeshes) m.visible = pass === 'char';
+        for (const m of weaponMeshes) m.visible = pass === 'weapon';
+
+        const sheet = document.createElement('canvas');
+        sheet.width = cell * frames;
+        sheet.height = cell * DIR_YAWS.length;
+        const ctx = sheet.getContext('2d');
+        renderer.setSize(cell, cell);
+        for (let d = 0; d < DIR_YAWS.length; d++) {
+          for (let f = 0; f < frames; f++) {
+            renderAt((clipDuration * f) / frames, DIR_YAWS[d]);
+            ctx.drawImage(renderer.domElement, f * cell, d * cell, cell, cell);
+          }
+        }
+        for (const m of meshes) m.visible = true;
+        for (const m of weaponMeshes) m.visible = true;
+        return sheet.toDataURL('image/png');
+      };
+
       // 그립 튜닝 API: 위치(본 로컬 단위)·회전(라디안)을 한 번에 설정
       window.__setGrip = (px, py, pz, rx, ry, rz) => {
         const g = window.__weaponGrip;

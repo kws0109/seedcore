@@ -1,6 +1,7 @@
 import { Application, Assets, Container, Graphics, Sprite, Texture, TilingSprite } from 'pixi.js';
 import { isWall, TILE, type Biome, type Dungeon } from '../game/dungeon';
 import type { EnemyKind, GameState } from '../game/state';
+import { CLIPS, dirFromAngle, loadPlayerAnim, type ClipName, type ClipTextures } from './anim';
 import { Effects } from './effects';
 
 const RARITY_TINT = { common: 0xcfc4a8, rare: 0x6a9ad0, epic: 0xb060d0 } as const;
@@ -114,7 +115,11 @@ export class Renderer {
   private floor!: TilingSprite;
   private light!: Sprite;
   private vignette!: Sprite;
-  private playerSprite!: Sprite;
+  private playerSprite!: Container; // char + weapon 레이어 (시트 프레임 교체 방식)
+  private playerChar!: Sprite;
+  private playerWeapon!: Sprite;
+  private playerAnim!: Record<ClipName, ClipTextures>;
+  private slashMs = 0; // 슬래시 원샷 재생 잔여(ms)
   private enemySprites = new Map<number, Sprite>();
   private walls = new Graphics(); // 던전당 1회 빌드
   private torchLayer = new Container();
@@ -170,8 +175,15 @@ export class Renderer {
     this.world.addChild(this.torchLayer);
     this.world.addChild(this.shadowsG);
     this.world.addChild(this.dropsG);
-    this.playerSprite = new Sprite(this.textures.player);
-    this.playerSprite.anchor.set(0.5, 0.62); // 발 밑 그림자 부근이 논리 위치에 오도록
+    this.playerAnim = await loadPlayerAnim(BASE);
+    this.playerSprite = new Container();
+    this.playerChar = new Sprite(this.playerAnim.idle.char[0][0]);
+    this.playerWeapon = new Sprite(this.playerAnim.idle.weapon[0][0]);
+    for (const sp of [this.playerChar, this.playerWeapon]) {
+      sp.anchor.set(0.5, 0.72); // 발 위치가 논리 좌표에 오도록
+      sp.scale.set(0.62); // 128px 셀 → 표시 약 80px
+      this.playerSprite.addChild(sp);
+    }
     this.world.addChild(this.playerSprite);
     this.world.addChild(this.projectilesG);
     this.world.addChild(this.fx); // 이펙트는 엔티티 위에 그린다
@@ -272,13 +284,12 @@ export class Renderer {
   // 프로시저럴 애니메이션 상태 (전부 렌더 전용 — 시뮬레이션 무관)
   private shadowsG = new Graphics();
   private shadowJobs: Array<{ x: number; y: number; r: number; lift: number }> = [];
-  private lungeMs = 0; // 공격 런지 잔여(ms)
   private enemyPrevPos = new Map<number, { x: number; y: number }>();
   private corpses: Array<{ sp: Sprite; life: number; spin: number }> = [];
 
-  // 공격 순간 호출 (main의 이벤트 배선에서)
+  // 공격 순간 호출 (main의 이벤트 배선에서) — 슬래시 클립 원샷 재생
   playerLunge(): void {
-    this.lungeMs = 120;
+    this.slashMs = (CLIPS.slash.frames / CLIPS.slash.fps) * 1000;
   }
 
   private drawShadows(): void {
@@ -422,40 +433,30 @@ export class Renderer {
   private drawPlayer(s: GameState, dtMs: number): void {
     const p = s.player;
     const g = this.playerSprite;
-    const scale = 64 / 256; // 표시 높이 약 64px
-    const faceLeft = Math.cos(p.facing) < 0;
     const moving = Math.abs(p.vel.x) + Math.abs(p.vel.y) > 1;
-    const dashing = p.dashTimer > 0;
+    this.slashMs = Math.max(0, this.slashMs - dtMs);
 
-    // 걸음 위상은 시뮬레이션 tick 기반 — 히트스톱 때 자동으로 함께 멈춘다
-    const phase = s.tick * 0.3;
-    const hop = moving && !dashing ? Math.abs(Math.sin(phase)) * 3.5 : 0;
-    // 착지 스쿼시(이동) / 호흡(정지) — 부피 보존을 위해 x·y 역보정
-    const squash = moving
-      ? 1 + Math.sin(phase * 2) * 0.05
-      : 1 + Math.sin(s.tick * 0.05) * 0.015;
-    let sx = scale * (2 - squash);
-    let sy = scale * squash;
-    if (dashing) {
-      sx *= 1.18;
-      sy *= 0.85;
+    const clip: ClipName = this.slashMs > 0 ? 'slash' : moving ? 'walk' : 'idle';
+    const spec = CLIPS[clip];
+    const dir = dirFromAngle(p.facing);
+    let frame: number;
+    if (clip === 'slash') {
+      // 원샷: 남은 시간으로 진행도 계산
+      const total = (spec.frames / spec.fps) * 1000;
+      frame = Math.min(spec.frames - 1, Math.floor(((total - this.slashMs) / total) * spec.frames));
+    } else {
+      // 루프: 시뮬레이션 tick 기반 → 히트스톱 때 자동 정지
+      frame = Math.floor((s.tick / 60) * spec.fps) % spec.frames;
     }
-    g.scale.set(faceLeft ? -sx : sx, sy);
+    const tex = this.playerAnim[clip];
+    this.playerChar.texture = tex.char[dir][frame];
+    this.playerWeapon.texture = tex.weapon[dir][frame];
 
-    // 공격 런지: 조준 방향으로 짧게 전진 + 회전 킥
-    this.lungeMs = Math.max(0, this.lungeMs - dtMs);
-    const lunge = this.lungeMs / 120; // 1→0
-    const lx = Math.cos(p.facing) * lunge * 9;
-    const ly = Math.sin(p.facing) * lunge * 9;
-
-    g.position.set(p.pos.x + lx, p.pos.y - hop + ly);
-    g.rotation =
-      (faceLeft ? -1 : 1) * ((moving ? Math.sin(phase) * 0.055 : 0) + lunge * 0.12);
-
+    g.position.set(p.pos.x, p.pos.y);
     const blink = p.invulnTimer > 0 && Math.floor(p.invulnTimer * 20) % 2 === 0;
-    g.alpha = dashing ? 0.55 : blink ? 0.4 : 1;
+    g.alpha = p.dashTimer > 0 ? 0.55 : blink ? 0.4 : 1;
 
-    this.shadowJobs.push({ x: p.pos.x, y: p.pos.y + 9, r: p.radius, lift: hop });
+    this.shadowJobs.push({ x: p.pos.x, y: p.pos.y + 9, r: p.radius, lift: 0 });
   }
 
   private drawEnemies(s: GameState): void {
