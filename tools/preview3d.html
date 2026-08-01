@@ -149,8 +149,10 @@
       // 스프라이트 시트 캡처: 4방향(행) × N프레임(열) 그리드.
       // pass='char'는 무기 숨김, pass='weapon'은 캐릭터 메시 숨김(본은 계속 갱신됨).
       // 반환: PNG dataURL — 게임에서 두 시트를 같은 프레임 인덱스로 겹쳐 그린다(무기 교체 설계).
-      const DIR_YAWS = [0, Math.PI / 2, Math.PI, -Math.PI / 2]; // down, left?, up, right? — 실측 확인용 순서
-      window.__captureSheet = (frames = 6, cell = 128, pass = 'char') => {
+      // 행 i = 화면 각도 i*(2π/dirs) (0=오른쪽, 시계방향). 실측: yaw = 화면각 - π/2
+      window.__captureSheet = (frames = 6, cell = 128, pass = 'char', dirs = 16) => {
+        const step = (Math.PI * 2) / dirs;
+        const DIR_YAWS = Array.from({ length: dirs }, (_, i) => i * step - Math.PI / 2);
         const model = pivot.children[0];
         const meshes = [];
         model.traverse((o) => {
