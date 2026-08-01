@@ -34,7 +34,7 @@ const BASE = import.meta.env.BASE_URL;
 export const CAM_TILT = (38 * Math.PI) / 180;
 const PROJ = Math.sin(CAM_TILT); // 지면 y 압축률 ≈ 0.616
 // 카메라 줌 — 런타임 조절 가능(마우스 휠). 값은 setZoom으로 갱신되고 매 프레임 반영된다.
-const ZOOM_DEFAULT = 2.2;
+const ZOOM_DEFAULT = 1.82; // 사용자 확정값 (2026-08-01)
 const ZOOM_MIN = 1.2;
 const ZOOM_MAX = 4;
 const WALL_H = 48; // 벽 높이(월드 단위)
