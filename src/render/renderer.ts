@@ -174,6 +174,7 @@ export class Renderer {
     this.world.addChild(this.walls);
     this.world.addChild(this.torchLayer);
     this.world.addChild(this.shadowsG);
+    this.world.addChild(this.aimG);
     this.world.addChild(this.dropsG);
     this.playerAnim = await loadPlayerAnim(BASE);
     this.playerSprite = new Container();
@@ -283,6 +284,7 @@ export class Renderer {
 
   // 프로시저럴 애니메이션 상태 (전부 렌더 전용 — 시뮬레이션 무관)
   private shadowsG = new Graphics();
+  private aimG = new Graphics(); // 조준 링 네비게이터 (연속 각도 — 스프라이트 양자화 보완)
   private shadowJobs: Array<{ x: number; y: number; r: number; lift: number }> = [];
   private enemyPrevPos = new Map<number, { x: number; y: number }>();
   private corpses: Array<{ sp: Sprite; life: number; spin: number }> = [];
@@ -363,6 +365,7 @@ export class Renderer {
   draw(s: GameState, dtMs: number): void {
     this.updateCamera(s, dtMs);
     this.drawPlayer(s, dtMs);
+    this.drawAim(s);
     this.drawEnemies(s);
     this.drawProjectiles(s);
     this.drawDrops(s);
@@ -371,6 +374,46 @@ export class Renderer {
     this.drawPortal(dtMs);
     for (const glow of this.torchGlows) glow.alpha = 0.8 + Math.random() * 0.2;
     this.effects.tick(dtMs);
+  }
+
+  // 조준 링: 바닥 원근(타원)에 눕힌 링 + 커서 방향 하이라이트 호 + 화살촉.
+  // 연속 각도로 그려져 16방향 스프라이트가 못 주는 정확한 조준 피드백을 담당한다.
+  private drawAim(s: GameState): void {
+    const p = s.player;
+    const g = this.aimG;
+    g.clear();
+    const cx = p.pos.x;
+    const cy = p.pos.y + 9; // 발밑 그림자 평면과 동일
+    const rx = 24;
+    const squash = 0.42; // 그림자 타원과 같은 원근 비율
+    const ry = rx * squash;
+
+    g.ellipse(cx, cy, rx, ry).stroke({ color: 0xd8cdb8, width: 1.5, alpha: 0.16 });
+
+    const a = p.facing;
+    const span = 0.38;
+    const steps = 8;
+    for (let i = 0; i <= steps; i++) {
+      const ang = a - span + (2 * span * i) / steps;
+      const x = cx + Math.cos(ang) * rx;
+      const y = cy + Math.sin(ang) * ry;
+      if (i === 0) g.moveTo(x, y);
+      else g.lineTo(x, y);
+    }
+    g.stroke({ color: 0xe6d8b8, width: 2.5, alpha: 0.9 });
+
+    // 화살촉 (타원 바깥으로 살짝 돌출)
+    const tipX = cx + Math.cos(a) * (rx + 7);
+    const tipY = cy + Math.sin(a) * (ry + 7 * squash);
+    const baseX = cx + Math.cos(a) * rx;
+    const baseY = cy + Math.sin(a) * ry;
+    const perp = a + Math.PI / 2;
+    const w = 3.5;
+    g.moveTo(tipX, tipY)
+      .lineTo(baseX + Math.cos(perp) * w, baseY + Math.sin(perp) * w * squash)
+      .lineTo(baseX - Math.cos(perp) * w, baseY - Math.sin(perp) * w * squash)
+      .closePath()
+      .fill({ color: 0xe6d8b8, alpha: 0.9 });
   }
 
   private drawProjectiles(s: GameState): void {
