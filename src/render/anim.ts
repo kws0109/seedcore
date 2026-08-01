@@ -68,10 +68,10 @@ export async function loadAnimSet(
 ): Promise<AnimSet> {
   const tex: Record<string, ClipTextures> = {};
   for (const [name, spec] of Object.entries(clips)) {
-    const charSheet = await Assets.load<Texture>(`${base}assets/anim/${prefix}-${name}.png`);
+    const charSheet = await Assets.load<Texture>(`${base}assets/anim/${prefix}-${name}.webp`);
     let weapon: Texture[][] | null = null;
     if (withWeapon) {
-      const weaponSheet = await Assets.load<Texture>(`${base}assets/anim/${prefix}-${name}-w.png`);
+      const weaponSheet = await Assets.load<Texture>(`${base}assets/anim/${prefix}-${name}-w.webp`);
       weapon = slice(weaponSheet, spec.frames, dirs);
     }
     tex[name] = { char: slice(charSheet, spec.frames, dirs), weapon };

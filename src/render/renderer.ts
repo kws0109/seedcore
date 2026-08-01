@@ -154,7 +154,7 @@ export class Renderer {
 
     const entries = Object.entries(TEXTURES) as Array<[keyof typeof TEXTURES, string]>;
     const loaded = await Promise.all(
-      entries.map(async ([key, name]) => [key, await Assets.load(`${BASE}assets/${name}.png`)]),
+      entries.map(async ([key, name]) => [key, await Assets.load(`${BASE}assets/${name}.webp`)]),
     );
     this.textures = Object.fromEntries(loaded) as Record<keyof typeof TEXTURES, Texture>;
 
