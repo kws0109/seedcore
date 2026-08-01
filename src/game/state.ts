@@ -45,6 +45,7 @@ export interface Enemy {
   aggro: boolean; // 플레이어 인지 여부 (시야 또는 경보)
   path: Vec[]; // A* 웨이포인트 (시야가 막혔을 때 추적 경로)
   repathCd: number; // 경로 재탐색 쿨다운(초)
+  home: Vec; // 스폰 지점 — 비인지 배회의 기준점
 }
 
 export interface Projectile {
@@ -131,6 +132,7 @@ export function createEnemy(id: number, pos: Vec, kind: EnemyKind = 'ghoul'): En
     aggro: false,
     path: [],
     repathCd: (id % 30) / 60, // 개체별 시차 — 같은 틱에 몰리는 재탐색 방지
+    home: { ...pos },
   };
 }
 

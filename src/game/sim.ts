@@ -1,4 +1,5 @@
 import { angleDiff, angleTo, circlesOverlap, norm, type Vec } from '../engine/math';
+import { deriveSeed, mulberry32 } from '../engine/rng';
 import { findPath, hasLineOfSight } from './ai';
 import { isWall, TILE, type Dungeon } from './dungeon';
 import type { Enemy, GameState, InputFrame } from './state';
@@ -145,9 +146,21 @@ function stepEnemies(s: GameState): void {
     if (!e.aggro) {
       if (dist <= ENEMIES[e.kind].aggroRange && los) e.aggro = true;
       else {
-        // 잠든 상태: 넉백 잔여 속도만 적용
-        moveAxis(s.dungeon, e.pos, e.radius, e.vel.x * DT, 0);
-        moveAxis(s.dungeon, e.pos, e.radius, 0, e.vel.y * DT);
+        // 비인지 배회: 홈 주변을 천천히 걷다 쉬기를 반복 (결정론적 해시 기반)
+        const target = wanderTarget(s, e);
+        let wx = 0;
+        let wy = 0;
+        if (target) {
+          const toTarget = { x: target.x - e.pos.x, y: target.y - e.pos.y };
+          if (Math.hypot(toTarget.x, toTarget.y) > 6) {
+            const wdir = norm(toTarget);
+            const wspeed = e.speed * 0.35;
+            wx = wdir.x * wspeed;
+            wy = wdir.y * wspeed;
+          }
+        }
+        moveAxis(s.dungeon, e.pos, e.radius, (e.vel.x + wx) * DT, 0);
+        moveAxis(s.dungeon, e.pos, e.radius, 0, (e.vel.y + wy) * DT);
         continue;
       }
     }
@@ -225,6 +238,25 @@ function stepEnemies(s: GameState): void {
     s.cleared = true;
     s.events.push({ type: 'dungeonCleared' });
   }
+}
+
+// 비인지 배회 목표. (시드, 개체 id, 시간 에포크)의 순수 해시 → 결정론 유지.
+// 에포크 4초 중 전반 2.5초는 이동, 후반은 휴식. 목표가 벽 타일이면 그 에포크는 쉰다.
+const WANDER_EPOCH_TICKS = 240;
+function wanderTarget(s: GameState, e: { id: number; home: Vec }): Vec | null {
+  const t = s.tick + e.id * 37;
+  const phase = t % WANDER_EPOCH_TICKS;
+  if (phase >= 150) return null;
+  const epoch = Math.floor(t / WANDER_EPOCH_TICKS);
+  const seed = deriveSeed(((s.dungeon?.seed ?? 0) ^ (e.id * 7919)) >>> 0, `wander${epoch}`);
+  const rng = mulberry32(seed);
+  const ang = rng() * Math.PI * 2;
+  const rad = 30 + rng() * 60;
+  const target = { x: e.home.x + Math.cos(ang) * rad, y: e.home.y + Math.sin(ang) * rad };
+  if (s.dungeon && isWall(s.dungeon, Math.floor(target.x / TILE), Math.floor(target.y / TILE))) {
+    return null;
+  }
+  return target;
 }
 
 // 원형 강체 분리. 몬스터끼리는 반반, 플레이어와는 몬스터가 더 밀린다(0.8/0.2).

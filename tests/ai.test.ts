@@ -71,14 +71,14 @@ describe('A* 길찾기', () => {
 });
 
 describe('어그로', () => {
-  it('시야 범위 밖의 몬스터는 움직이지 않는다', () => {
+  it('시야 범위 밖의 몬스터는 어그로 없이 홈 주변에 머문다 (배회만)', () => {
     const s = createState();
-    const e = createEnemy(1, { x: ENEMIES.ghoul.aggroRange + 200, y: 0 });
+    const e = createEnemy(1, { x: ENEMIES.ghoul.aggroRange + 400, y: 0 });
     s.enemies.push(e);
-    const x0 = e.pos.x;
-    for (let i = 0; i < 60; i++) step(s, idleInput());
-    expect(e.pos.x).toBe(x0);
+    for (let i = 0; i < 300; i++) step(s, idleInput());
     expect(e.aggro).toBe(false);
+    // 플레이어 쪽으로 추적하지 않고 홈 반경 안에 머문다
+    expect(Math.hypot(e.pos.x - e.home.x, e.pos.y - e.home.y)).toBeLessThan(150);
   });
 
   it('범위 안 + 시야가 트이면 어그로가 잡히고 접근한다', () => {
@@ -111,6 +111,42 @@ describe('어그로', () => {
     expect(near.aggro).toBe(true);
     expect(packmate.aggro).toBe(true); // 경보 전파 (150px 이내)
     expect(far.aggro).toBe(false);
+  });
+});
+
+describe('배회 (비인지 상태)', () => {
+  it('비인지 몬스터도 시간이 지나면 홈 주변을 움직인다', () => {
+    const s = createState();
+    s.player.pos = { x: 5000, y: 5000 }; // 인지 불가 거리
+    const e = createEnemy(1, { x: 0, y: 0 });
+    s.enemies.push(e);
+    let moved = false;
+    for (let i = 0; i < 600; i++) {
+      step(s, idleInput());
+      if (Math.hypot(e.pos.x, e.pos.y) > 5) moved = true;
+    }
+    expect(moved).toBe(true);
+    expect(e.aggro).toBe(false);
+  });
+
+  it('배회는 홈 반경을 벗어나지 않는다', () => {
+    const s = createState();
+    s.player.pos = { x: 5000, y: 5000 };
+    const e = createEnemy(2, { x: 0, y: 0 });
+    s.enemies.push(e);
+    for (let i = 0; i < 3600; i++) {
+      step(s, idleInput());
+      expect(Math.hypot(e.pos.x - e.home.x, e.pos.y - e.home.y)).toBeLessThan(150);
+    }
+  });
+
+  it('배회 중 인지되면 즉시 추적으로 전환된다', () => {
+    const s = createState();
+    const e = createEnemy(3, { x: 200, y: 0 });
+    s.enemies.push(e);
+    for (let i = 0; i < 90; i++) step(s, idleInput());
+    expect(e.aggro).toBe(true);
+    expect(e.pos.x).toBeLessThan(200); // 접근 중
   });
 });
 
