@@ -10,6 +10,7 @@ export const T = {
   attackArc: 1.1,
   attackDamage: 34,
   attackCooldown: 0.25,
+  autoAttackRange: 220, // 이 거리 안에 적이 있으면 자동으로 휘두른다 (Hall of Torment식)
   attackKnockback: 260,
   hitstopSec: 0.05,
   playerInvulnAfterHit: 0.6,

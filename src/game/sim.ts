@@ -102,9 +102,14 @@ function stepMove(s: GameState, inp: InputFrame): void {
   p.facing = angleTo(p.pos, { x: inp.aimX, y: inp.aimY });
 }
 
-function stepAttack(s: GameState, inp: InputFrame): void {
+function stepAttack(s: GameState, _inp: InputFrame): void {
   const p = s.player;
-  if (!inp.attack || p.attackCooldown > 0) return;
+  if (p.attackCooldown > 0) return;
+  // 자동 공격: 근처에 적이 있으면 커서 방향(facing)으로 공격속도에 맞춰 자동 발동
+  const anyNear = s.enemies.some(
+    (e) => Math.hypot(e.pos.x - p.pos.x, e.pos.y - p.pos.y) <= T.autoAttackRange,
+  );
+  if (!anyNear) return;
   p.attackCooldown = T.attackCooldown;
   s.events.push({ type: 'playerAttack', angle: p.facing });
   for (const e of s.enemies) {

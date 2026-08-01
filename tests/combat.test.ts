@@ -176,7 +176,8 @@ describe('combat: 강체 충돌', () => {
     const s = createState();
     s.enemies.push(createEnemy(1, { x: 200, y: 0 }));
     for (let i = 0; i < 300; i++) {
-      step(s, idleInput());
+      // 시선을 반대쪽으로 — 자동 공격이 빗나가야 순수한 몸통 차단만 검증된다
+      step(s, { ...idleInput(), aimX: -300, aimY: 0 });
       const e = s.enemies[0];
       const d = Math.hypot(e.pos.x - s.player.pos.x, e.pos.y - s.player.pos.y);
       expect(d).toBeGreaterThanOrEqual((e.radius + s.player.radius) * 0.85);
@@ -188,10 +189,27 @@ describe('combat: 강체 충돌', () => {
     const e = createEnemy(1, { x: 60, y: 0 });
     e.speed = 0; // 고정 장애물화
     s.enemies.push(e);
-    // 오른쪽으로 대시 — 적 위치를 넘어가야 한다
-    step(s, { ...idleInput(), dash: true, moveX: 1, aimX: 100, aimY: 0 });
-    for (let i = 0; i < 10; i++) step(s, { ...idleInput(), moveX: 1, aimX: 200, aimY: 0 });
+    // 오른쪽으로 대시 — 적 위치를 넘어가야 한다 (대시 방향은 이동 입력, 시선은 뒤로 돌려 자동 공격 배제)
+    step(s, { ...idleInput(), dash: true, moveX: 1, aimX: -300, aimY: 0 });
+    for (let i = 0; i < 10; i++) step(s, { ...idleInput(), moveX: 1, aimX: -300, aimY: 0 });
     expect(s.player.pos.x).toBeGreaterThan(e.pos.x + e.radius);
+  });
+});
+
+describe('combat: 자동 공격', () => {
+  it('적이 자동 공격 범위 안에 있으면 공격 입력 없이 커서 방향으로 발동한다', () => {
+    const s = createState();
+    s.enemies.push(createEnemy(1, { x: 50, y: 0 }));
+    step(s, { ...idleInput(), aimX: 100, aimY: 0 }); // attack: false
+    expect(s.events.some((e) => e.type === 'playerAttack')).toBe(true);
+    expect(s.enemies[0].hp).toBe(ENEMIES.ghoul.hp - T.attackDamage);
+  });
+
+  it('자동 공격 범위 밖이면 발동하지 않는다', () => {
+    const s = createState();
+    s.enemies.push(createEnemy(1, { x: T.autoAttackRange + 100, y: 0 }));
+    step(s, { ...idleInput(), aimX: 100, aimY: 0 });
+    expect(s.events.some((e) => e.type === 'playerAttack')).toBe(false);
   });
 });
 
