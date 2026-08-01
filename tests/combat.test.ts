@@ -154,6 +154,47 @@ describe('combat: 드롭·클리어', () => {
   });
 });
 
+describe('combat: 강체 충돌', () => {
+  it('같은 점에 겹친 몬스터들은 서로 밀려나 최소 간격을 확보한다', () => {
+    const s = createState();
+    s.player.pos = { x: 1000, y: 1000 }; // 멀리 — 접촉 피해 배제
+    s.enemies.push(createEnemy(1, { x: 0, y: 0 }));
+    s.enemies.push(createEnemy(2, { x: 0, y: 0 }));
+    s.enemies.push(createEnemy(3, { x: 0.5, y: 0 }));
+    for (let i = 0; i < 120; i++) step(s, idleInput());
+    for (let i = 0; i < s.enemies.length; i++) {
+      for (let j = i + 1; j < s.enemies.length; j++) {
+        const a = s.enemies[i];
+        const b = s.enemies[j];
+        const d = Math.hypot(a.pos.x - b.pos.x, a.pos.y - b.pos.y);
+        expect(d).toBeGreaterThanOrEqual((a.radius + b.radius) * 0.9);
+      }
+    }
+  });
+
+  it('몬스터는 플레이어를 관통하지 못하고 접촉 거리에서 멈춘다', () => {
+    const s = createState();
+    s.enemies.push(createEnemy(1, { x: 200, y: 0 }));
+    for (let i = 0; i < 300; i++) {
+      step(s, idleInput());
+      const e = s.enemies[0];
+      const d = Math.hypot(e.pos.x - s.player.pos.x, e.pos.y - s.player.pos.y);
+      expect(d).toBeGreaterThanOrEqual((e.radius + s.player.radius) * 0.85);
+    }
+  });
+
+  it('대시 중에는 몬스터를 통과할 수 있다', () => {
+    const s = createState();
+    const e = createEnemy(1, { x: 60, y: 0 });
+    e.speed = 0; // 고정 장애물화
+    s.enemies.push(e);
+    // 오른쪽으로 대시 — 적 위치를 넘어가야 한다
+    step(s, { ...idleInput(), dash: true, moveX: 1, aimX: 100, aimY: 0 });
+    for (let i = 0; i < 10; i++) step(s, { ...idleInput(), moveX: 1, aimX: 200, aimY: 0 });
+    expect(s.player.pos.x).toBeGreaterThan(e.pos.x + e.radius);
+  });
+});
+
 describe('combat: 접촉 피해', () => {
   it('피격 직후 무적 시간 동안 연속 피해가 없다', () => {
     const s = createState();

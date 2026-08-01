@@ -153,11 +153,21 @@ function stepEnemies(s: GameState): void {
     }
     moveAxis(s.dungeon, e.pos, e.radius, (e.vel.x + mx) * DT, 0);
     moveAxis(s.dungeon, e.pos, e.radius, 0, (e.vel.y + my) * DT);
-    const canHit = p.invulnTimer === 0 && p.dashTimer === 0;
-    if (canHit && circlesOverlap(p.pos, p.radius, e.pos, e.radius)) {
-      p.hp -= e.touchDamage;
-      p.invulnTimer = T.playerInvulnAfterHit;
-      s.events.push({ type: 'playerHit', pos: { ...p.pos } });
+  }
+
+  // 강체 분리: 몬스터끼리·플레이어와 겹침 해소 (대시 중엔 플레이어 통과 허용)
+  separateBodies(s);
+
+  // 접촉 피해는 분리 후 "맞닿은 상태"에서 판정 (분리가 정확히 접촉 거리에 두므로 여유 1.5px)
+  const canHit = p.invulnTimer === 0 && p.dashTimer === 0;
+  if (canHit) {
+    for (const e of s.enemies) {
+      if (circlesOverlap(p.pos, p.radius + 1.5, e.pos, e.radius)) {
+        p.hp -= e.touchDamage;
+        p.invulnTimer = T.playerInvulnAfterHit;
+        s.events.push({ type: 'playerHit', pos: { ...p.pos } });
+        break; // 한 틱에 한 번만
+      }
     }
   }
   let anyDied = false;
@@ -173,6 +183,47 @@ function stepEnemies(s: GameState): void {
   if (anyDied && s.enemies.length === 0 && !s.cleared) {
     s.cleared = true;
     s.events.push({ type: 'dungeonCleared' });
+  }
+}
+
+// 원형 강체 분리. 몬스터끼리는 반반, 플레이어와는 몬스터가 더 밀린다(0.8/0.2).
+// 이동은 moveAxis를 거치므로 분리로 벽을 뚫는 일은 없다. 순서·계산 모두 결정론적.
+function separateBodies(s: GameState): void {
+  const p = s.player;
+  for (let i = 0; i < s.enemies.length; i++) {
+    for (let j = i + 1; j < s.enemies.length; j++) {
+      const a = s.enemies[i];
+      const b = s.enemies[j];
+      const dx = b.pos.x - a.pos.x;
+      const dy = b.pos.y - a.pos.y;
+      const dist = Math.hypot(dx, dy);
+      const min = a.radius + b.radius;
+      if (dist >= min) continue;
+      // 완전 동일점이면 인덱스 기반 결정론적 방향으로 분리
+      const nx = dist > 0.0001 ? dx / dist : Math.cos(i * 2.399 + j);
+      const ny = dist > 0.0001 ? dy / dist : Math.sin(i * 2.399 + j);
+      const push = (min - dist) / 2;
+      moveAxis(s.dungeon, a.pos, a.radius, -nx * push, 0);
+      moveAxis(s.dungeon, a.pos, a.radius, 0, -ny * push);
+      moveAxis(s.dungeon, b.pos, b.radius, nx * push, 0);
+      moveAxis(s.dungeon, b.pos, b.radius, 0, ny * push);
+    }
+  }
+  if (p.dashTimer === 0) {
+    for (const e of s.enemies) {
+      const dx = e.pos.x - p.pos.x;
+      const dy = e.pos.y - p.pos.y;
+      const dist = Math.hypot(dx, dy);
+      const min = e.radius + p.radius;
+      if (dist >= min) continue;
+      const nx = dist > 0.0001 ? dx / dist : 1;
+      const ny = dist > 0.0001 ? dy / dist : 0;
+      const push = min - dist;
+      moveAxis(s.dungeon, e.pos, e.radius, nx * push * 0.8, 0);
+      moveAxis(s.dungeon, e.pos, e.radius, 0, ny * push * 0.8);
+      moveAxis(s.dungeon, p.pos, p.radius, -nx * push * 0.2, 0);
+      moveAxis(s.dungeon, p.pos, p.radius, 0, -ny * push * 0.2);
+    }
   }
 }
 
