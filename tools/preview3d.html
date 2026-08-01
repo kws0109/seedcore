@@ -82,9 +82,11 @@
         if (weaponUrl) {
           loader.load(weaponUrl, (wg) => {
             const weapon = wg.scene;
+            // ?hand=left 로 왼손 부착 (활 등). 기본은 오른손.
+            const handSide = params.get('hand') === 'left' ? /left.*hand|hand.*l(eft)?$/i : /right.*hand|hand.*r(ight)?$/i;
             let hand = null;
             model.traverse((o) => {
-              if (!hand && o.isBone && /hand.*r(ight)?$|r(ight)?.*hand/i.test(o.name)) hand = o;
+              if (!hand && o.isBone && handSide.test(o.name)) hand = o;
             });
             // 본 하위로 들어가면 모델 정규화 스케일이 상속되므로, 본의 월드 스케일로 역보정
             const boneWorldScale = hand

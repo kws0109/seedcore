@@ -1,3 +1,10 @@
 {
-  "model": "019fbb7f-8ff3-7514-978c-66f340a17abc"
+  "model": "019fbb7f-8ff3-7514-978c-66f340a17abc",
+  "remesh": "019fbb81-5472-7e59-95fc-41507c90987a",
+  "rig": "019fbb81-f8d0-7e5e-8324-e74dbab6ba87",
+  "anims": {
+    "idle2": "019fbb82-e77b-754f-b67a-155822a521d2",
+    "walk": "019fbb83-65ba-7dda-b11a-be5645fe736b",
+    "attack": "019fbb83-bb3a-7e7c-afd9-be682d4edb12"
+  }
 }

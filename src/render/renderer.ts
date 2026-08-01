@@ -1,8 +1,17 @@
 import { Application, Assets, Container, Graphics, Sprite, Texture, TilingSprite } from 'pixi.js';
 import { isWall, TILE, type Biome, type Dungeon } from '../game/dungeon';
 import type { EnemyKind, GameState } from '../game/state';
-import { CLIPS, dirFromAngle, loadPlayerAnim, type ClipName, type ClipTextures } from './anim';
+import {
+  dirFromAngle,
+  ENEMY_CLIPS,
+  loadAnimSet,
+  PLAYER_CLIPS,
+  type AnimSet,
+  type EnemyClip,
+  type PlayerClip,
+} from './anim';
 import { Effects } from './effects';
+import ENEMIES from '../data/enemies.json';
 
 const RARITY_TINT = { common: 0xcfc4a8, rare: 0x6a9ad0, epic: 0xb060d0 } as const;
 
@@ -118,9 +127,10 @@ export class Renderer {
   private playerSprite!: Container; // char + weapon 레이어 (시트 프레임 교체 방식)
   private playerChar!: Sprite;
   private playerWeapon!: Sprite;
-  private playerAnim!: Record<ClipName, ClipTextures>;
+  private playerAnim!: AnimSet;
+  private enemyAnim!: Record<EnemyKind, AnimSet>;
   private slashMs = 0; // 슬래시 원샷 재생 잔여(ms)
-  private enemySprites = new Map<number, Sprite>();
+  private enemySprites = new Map<number, { root: Container; char: Sprite; weapon: Sprite | null }>();
   private walls = new Graphics(); // 던전당 1회 빌드
   private torchLayer = new Container();
   private torchGlows: Sprite[] = [];
@@ -176,10 +186,15 @@ export class Renderer {
     this.world.addChild(this.shadowsG);
     this.world.addChild(this.aimG);
     this.world.addChild(this.dropsG);
-    this.playerAnim = await loadPlayerAnim(BASE);
+    this.playerAnim = await loadAnimSet(BASE, 'player', PLAYER_CLIPS, 16, true);
+    this.enemyAnim = {
+      ghoul: await loadAnimSet(BASE, 'ghoul', ENEMY_CLIPS, 8, false),
+      archer: await loadAnimSet(BASE, 'archer', ENEMY_CLIPS, 8, true),
+      brute: await loadAnimSet(BASE, 'brute', ENEMY_CLIPS, 8, true),
+    };
     this.playerSprite = new Container();
-    this.playerChar = new Sprite(this.playerAnim.idle.char[0][0]);
-    this.playerWeapon = new Sprite(this.playerAnim.idle.weapon[0][0]);
+    this.playerChar = new Sprite(this.playerAnim.tex.idle.char[0][0]);
+    this.playerWeapon = new Sprite(this.playerAnim.tex.idle.weapon![0][0]);
     for (const sp of [this.playerChar, this.playerWeapon]) {
       sp.anchor.set(0.5, 0.72); // 발 위치가 논리 좌표에 오도록
       sp.scale.set(0.62); // 128px 셀 → 표시 약 80px
@@ -265,7 +280,7 @@ export class Renderer {
       this.torchLayer.addChild(prop);
     }
 
-    for (const sp of this.enemySprites.values()) sp.destroy();
+    for (const entry of this.enemySprites.values()) entry.root.destroy({ children: true });
     this.enemySprites.clear();
     this.enemyPrevPos.clear();
     for (const sp of this.dropSprites.values()) sp.destroy();
@@ -291,7 +306,7 @@ export class Renderer {
 
   // 공격 순간 호출 (main의 이벤트 배선에서) — 슬래시 클립 원샷 재생
   playerLunge(): void {
-    this.slashMs = (CLIPS.slash.frames / CLIPS.slash.fps) * 1000;
+    this.slashMs = (PLAYER_CLIPS.slash.frames / PLAYER_CLIPS.slash.fps) * 1000;
   }
 
   private drawShadows(): void {
@@ -479,9 +494,9 @@ export class Renderer {
     const moving = Math.abs(p.vel.x) + Math.abs(p.vel.y) > 1;
     this.slashMs = Math.max(0, this.slashMs - dtMs);
 
-    const clip: ClipName = this.slashMs > 0 ? 'slash' : moving ? 'walk' : 'idle';
-    const spec = CLIPS[clip];
-    const dir = dirFromAngle(p.facing);
+    const clip: PlayerClip = this.slashMs > 0 ? 'slash' : moving ? 'walk' : 'idle';
+    const spec = PLAYER_CLIPS[clip];
+    const dir = dirFromAngle(p.facing, this.playerAnim.dirs);
     let frame: number;
     if (clip === 'slash') {
       // 원샷: 남은 시간으로 진행도 계산
@@ -491,9 +506,9 @@ export class Renderer {
       // 루프: 시뮬레이션 tick 기반 → 히트스톱 때 자동 정지
       frame = Math.floor((s.tick / 60) * spec.fps) % spec.frames;
     }
-    const tex = this.playerAnim[clip];
+    const tex = this.playerAnim.tex[clip];
     this.playerChar.texture = tex.char[dir][frame];
-    this.playerWeapon.texture = tex.weapon[dir][frame];
+    this.playerWeapon.texture = tex.weapon![dir][frame];
 
     g.position.set(p.pos.x, p.pos.y);
     const blink = p.invulnTimer > 0 && Math.floor(p.invulnTimer * 20) % 2 === 0;
@@ -504,21 +519,27 @@ export class Renderer {
 
   private drawEnemies(s: GameState): void {
     const alive = new Set<number>();
-    const tex: Record<EnemyKind, Texture> = {
-      ghoul: this.textures.ghoul,
-      archer: this.textures.archer,
-      brute: this.textures.brute,
-    };
-    const displaySize: Record<EnemyKind, number> = { ghoul: 56, archer: 56, brute: 92 };
+    const displayScale: Record<EnemyKind, number> = { ghoul: 0.5, archer: 0.5, brute: 0.78 };
     for (const e of s.enemies) {
       alive.add(e.id);
-      let sp = this.enemySprites.get(e.id);
-      if (!sp) {
-        sp = new Sprite(tex[e.kind]);
-        sp.anchor.set(0.5, 0.62);
+      let entry = this.enemySprites.get(e.id);
+      if (!entry) {
+        const root = new Container();
+        const anim = this.enemyAnim[e.kind];
+        const char = new Sprite(anim.tex.idle.char[0][0]);
+        char.anchor.set(0.5, 0.72);
+        root.addChild(char);
+        let weapon: Sprite | null = null;
+        if (anim.tex.idle.weapon) {
+          weapon = new Sprite(anim.tex.idle.weapon[0][0]);
+          weapon.anchor.set(0.5, 0.72);
+          root.addChild(weapon);
+        }
+        root.scale.set(displayScale[e.kind]);
         // 플레이어 스프라이트 바로 아래 레이어에 삽입
-        this.world.addChildAt(sp, this.world.getChildIndex(this.playerSprite));
-        this.enemySprites.set(e.id, sp);
+        this.world.addChildAt(root, this.world.getChildIndex(this.playerSprite));
+        entry = { root, char, weapon };
+        this.enemySprites.set(e.id, entry);
       }
       // 이동 감지: 프레임 간 위치 델타 (넉백·추적 모두 반영)
       const prev = this.enemyPrevPos.get(e.id) ?? { x: e.pos.x, y: e.pos.y };
@@ -526,34 +547,44 @@ export class Renderer {
       this.enemyPrevPos.set(e.id, { x: e.pos.x, y: e.pos.y });
       const moving = movingDist > 0.15;
 
-      const phase = s.tick * 0.24 + e.id * 1.7;
-      const hop = moving ? Math.abs(Math.sin(phase)) * 2.5 : 0;
-      const wobble = moving ? Math.sin(phase) * 0.09 : Math.sin(s.tick * 0.04 + e.id) * 0.02;
+      // 상태 선택: 근접형은 타격 거리, 궁수는 사격 범위에서 공격 클립
+      const p = s.player;
+      const dist = Math.hypot(p.pos.x - e.pos.x, p.pos.y - e.pos.y);
+      const inStrike =
+        e.kind === 'archer'
+          ? dist <= ENEMIES.archer.preferMax + 60 && !moving
+          : dist <= e.radius + p.radius + 26;
+      const clip: EnemyClip = inStrike ? 'attack' : moving ? 'walk' : 'idle';
+      const anim = this.enemyAnim[e.kind];
+      const spec = anim.clips[clip];
+      // 개체별 위상 오프셋으로 군집 동기화 방지. tick 기반 → 히트스톱 동기
+      const frame = Math.floor((s.tick / 60) * spec.fps + e.id * 1.7) % spec.frames;
+      const dir = dirFromAngle(Math.atan2(p.pos.y - e.pos.y, p.pos.x - e.pos.x), anim.dirs);
+      entry.char.texture = anim.tex[clip].char[dir][frame];
+      if (entry.weapon && anim.tex[clip].weapon) {
+        entry.weapon.texture = anim.tex[clip].weapon[dir][frame];
+      }
 
-      const scale = displaySize[e.kind] / 256;
-      const faceLeft = s.player.pos.x < e.pos.x;
-      // 피격: 방향성 스쿼시(납작+팽창) — 단순 팽창보다 타격이 실린 느낌
+      // 피격: 팽창 펄스 + 적색 틴트
       const flash = e.hitFlash > 0 ? e.hitFlash / 0.1 : 0;
-      const sx = scale * (1 + flash * 0.35);
-      const sy = scale * (1 - flash * 0.22);
-      sp.position.set(e.pos.x, e.pos.y - hop);
-      sp.scale.set(faceLeft ? -sx : sx, sy);
-      sp.rotation = wobble;
-      sp.tint = e.hitFlash > 0 ? 0xff6a5a : 0xffffff;
+      entry.root.position.set(e.pos.x, e.pos.y);
+      entry.root.scale.set(displayScale[e.kind] * (1 + flash * 0.18));
+      const tint = e.hitFlash > 0 ? 0xff6a5a : 0xffffff;
+      entry.char.tint = tint;
+      if (entry.weapon) entry.weapon.tint = tint;
 
-      this.shadowJobs.push({ x: e.pos.x, y: e.pos.y + 8, r: e.radius, lift: hop });
+      this.shadowJobs.push({ x: e.pos.x, y: e.pos.y + 8, r: e.radius, lift: 0 });
     }
-    for (const [id, sp] of this.enemySprites) {
+    for (const [id, entry] of this.enemySprites) {
       if (!alive.has(id)) {
-        // 시체 페이드: 같은 텍스처·변환으로 쓰러지는 연출
-        const corpse = new Sprite(sp.texture);
-        corpse.anchor.set(0.5, 0.62);
-        corpse.position.copyFrom(sp.position);
-        corpse.scale.copyFrom(sp.scale);
-        corpse.rotation = sp.rotation;
+        // 시체 페이드: 마지막 프레임 텍스처로 쓰러지는 연출
+        const corpse = new Sprite(entry.char.texture);
+        corpse.anchor.set(0.5, 0.72);
+        corpse.position.copyFrom(entry.root.position);
+        corpse.scale.copyFrom(entry.root.scale);
         this.world.addChildAt(corpse, this.world.getChildIndex(this.playerSprite));
-        this.corpses.push({ sp: corpse, life: 400, spin: sp.scale.x >= 0 ? 1 : -1 });
-        sp.destroy();
+        this.corpses.push({ sp: corpse, life: 400, spin: 1 });
+        entry.root.destroy({ children: true });
         this.enemySprites.delete(id);
         this.enemyPrevPos.delete(id);
       }
