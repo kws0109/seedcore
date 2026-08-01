@@ -1,4 +1,5 @@
 import { angleDiff, angleTo, circlesOverlap, norm, type Vec } from '../engine/math';
+import { findPath, hasLineOfSight } from './ai';
 import { isWall, TILE, type Dungeon } from './dungeon';
 import type { Enemy, GameState, InputFrame } from './state';
 import { T } from './tuning';
@@ -114,6 +115,12 @@ function stepAttack(s: GameState, inp: InputFrame): void {
     if (!inRange || !inArc) continue;
     e.hp -= Math.round(T.attackDamage * p.atkMul);
     e.hitFlash = 0.1;
+    // 피격 어그로 + 주변 무리 경보 (150px)
+    e.aggro = true;
+    for (const ally of s.enemies) {
+      if (ally.aggro) continue;
+      if (circlesOverlap(e.pos, 150, ally.pos, 0)) ally.aggro = true;
+    }
     const kb = norm({ x: dx, y: dy });
     e.vel.x += kb.x * T.attackKnockback * e.kbResist;
     e.vel.y += kb.y * T.attackKnockback * e.kbResist;
@@ -126,29 +133,63 @@ function stepEnemies(s: GameState): void {
   const p = s.player;
   for (const e of s.enemies) {
     e.hitFlash = Math.max(0, e.hitFlash - DT);
+    e.repathCd = Math.max(0, e.repathCd - DT);
     // 넉백 감쇠
     e.vel.x *= 0.85;
     e.vel.y *= 0.85;
     const toPlayer = { x: p.pos.x - e.pos.x, y: p.pos.y - e.pos.y };
     const dist = Math.hypot(toPlayer.x, toPlayer.y);
-    const dir = norm(toPlayer);
+    const los = hasLineOfSight(s.dungeon, e.pos, p.pos);
+
+    // 인지: 시야 범위 안 + 벽에 가리지 않을 때만 어그로 (피격·경보는 stepAttack에서)
+    if (!e.aggro) {
+      if (dist <= ENEMIES[e.kind].aggroRange && los) e.aggro = true;
+      else {
+        // 잠든 상태: 넉백 잔여 속도만 적용
+        moveAxis(s.dungeon, e.pos, e.radius, e.vel.x * DT, 0);
+        moveAxis(s.dungeon, e.pos, e.radius, 0, e.vel.y * DT);
+        continue;
+      }
+    }
+
+    // 추적 방향 결정: 시야가 트이면 직선, 막히면 A* 경로 추종
+    let dir = norm(toPlayer);
+    if (!los) {
+      if (s.dungeon && e.repathCd === 0) {
+        e.path = findPath(s.dungeon, e.pos, p.pos);
+        e.repathCd = 0.5;
+      }
+      while (e.path.length > 0) {
+        const wp = e.path[0];
+        if (Math.hypot(wp.x - e.pos.x, wp.y - e.pos.y) < 10) {
+          e.path.shift();
+          continue;
+        }
+        dir = norm({ x: wp.x - e.pos.x, y: wp.y - e.pos.y });
+        break;
+      }
+    } else {
+      e.path = [];
+    }
+
     let mx = dir.x * e.speed;
     let my = dir.y * e.speed;
     if (e.kind === 'archer') {
       const a = ENEMIES.archer;
-      if (dist > a.preferMax) {
-        // 접근 (기본값 유지)
-      } else if (dist < a.preferMin) {
-        mx = -dir.x * e.speed;
-        my = -dir.y * e.speed;
-      } else {
-        mx = 0;
-        my = 0;
+      if (los && dist <= a.preferMax) {
+        if (dist < a.preferMin) {
+          mx = -dir.x * e.speed;
+          my = -dir.y * e.speed;
+        } else {
+          mx = 0;
+          my = 0;
+        }
       }
       e.shootTimer = Math.max(0, e.shootTimer - DT);
-      if (e.shootTimer === 0 && dist <= a.preferMax + 60) {
+      // 사격은 시야가 트였을 때만 (벽 너머 사격 방지)
+      if (los && e.shootTimer === 0 && dist <= a.preferMax + 60) {
         e.shootTimer = a.shootCooldown;
-        spawnProjectile(s, e, dir, a.projectileSpeed, a.projectileDamage);
+        spawnProjectile(s, e, norm(toPlayer), a.projectileSpeed, a.projectileDamage);
       }
     }
     moveAxis(s.dungeon, e.pos, e.radius, (e.vel.x + mx) * DT, 0);

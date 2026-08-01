@@ -42,6 +42,9 @@ export interface Enemy {
   kbResist: number; // 넉백 배율 (1=그대로, 0.3=저항)
   shootTimer: number; // archer 전용 발사 쿨다운
   drop: RolledDrop | null; // 던전 생성 시 사전 롤링된 드롭
+  aggro: boolean; // 플레이어 인지 여부 (시야 또는 경보)
+  path: Vec[]; // A* 웨이포인트 (시야가 막혔을 때 추적 경로)
+  repathCd: number; // 경로 재탐색 쿨다운(초)
 }
 
 export interface Projectile {
@@ -125,6 +128,9 @@ export function createEnemy(id: number, pos: Vec, kind: EnemyKind = 'ghoul'): En
     kbResist: data.kbResist,
     shootTimer: 0,
     drop: null,
+    aggro: false,
+    path: [],
+    repathCd: (id % 30) / 60, // 개체별 시차 — 같은 틱에 몰리는 재탐색 방지
   };
 }
 

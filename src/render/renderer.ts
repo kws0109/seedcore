@@ -551,9 +551,10 @@ export class Renderer {
       const p = s.player;
       const dist = Math.hypot(p.pos.x - e.pos.x, p.pos.y - e.pos.y);
       const inStrike =
-        e.kind === 'archer'
+        e.aggro &&
+        (e.kind === 'archer'
           ? dist <= ENEMIES.archer.preferMax + 60 && !moving
-          : dist <= e.radius + p.radius + 26;
+          : dist <= e.radius + p.radius + 26);
       const clip: EnemyClip = inStrike ? 'attack' : moving ? 'walk' : 'idle';
       const anim = this.enemyAnim[e.kind];
       const spec = anim.clips[clip];
