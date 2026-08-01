@@ -9,6 +9,8 @@ import {
   TilingSprite,
 } from 'pixi.js';
 import { isWall, TILE, type Biome, type Dungeon } from '../game/dungeon';
+import { hasLineOfSight } from '../game/ai';
+import { T } from '../game/tuning';
 import type { EnemyKind, GameState } from '../game/state';
 import {
   dirFromAngle,
@@ -31,7 +33,7 @@ const BASE = import.meta.env.BASE_URL;
 // 시뮬레이션은 압축 없는 정사각 좌표계 그대로 — 투영은 순수 렌더 계층.
 export const CAM_TILT = (38 * Math.PI) / 180;
 const PROJ = Math.sin(CAM_TILT); // 지면 y 압축률 ≈ 0.616
-const ZOOM = 1.3; // 카메라 줌 — 디아블로식 프레이밍(캐릭터 크게, 시야 좁게)
+const ZOOM = 3.25; // 카메라 줌 — 사용자 실측 프레이밍(브라우저 250% 확대 상태 기준)
 const WALL_H = 48; // 벽 높이(월드 단위)
 const WALL_RISE = WALL_H * Math.cos(CAM_TILT); // 벽 상단이 화면에서 솟는 픽셀
 const WALL_RISE_L = WALL_RISE / PROJ; // 위 상승량의 월드-로컬 환산
@@ -149,7 +151,9 @@ export class Renderer {
   private textures!: Record<keyof typeof TEXTURES, Texture>;
   private floor!: TilingSprite;
   private light!: Sprite;
+  private fog!: Sprite;
   private vignette!: Sprite;
+  private dungeonRef: Dungeon | null = null;
   private playerSprite!: Container; // char + weapon 레이어 (시트 프레임 교체 방식)
   private playerChar!: Sprite;
   private playerWeapon!: Sprite;
@@ -209,6 +213,21 @@ export class Renderer {
     this.light.blendMode = 'add';
     this.app.stage.addChild(this.light);
 
+    // 시야 fog: 시야 반경(타원) 밖을 어둠으로 차단. 중심 투명 → 가장자리 불투명 원형
+    // 그라데이션 텍스처를 화면 중앙(=플레이어)에 고정하고, 크기만 시야 배율에 따라 갱신한다.
+    // f=0.5 지점이 실효 시야 반경에 대응 (스프라이트 폭 = 시야×4×줌).
+    this.fog = new Sprite(
+      radialTexture(1024, [
+        [0, 'rgba(5,4,8,0)'],
+        [0.24, 'rgba(5,4,8,0)'],
+        [0.38, 'rgba(5,4,8,0.55)'],
+        [0.5, 'rgba(5,4,8,1)'],
+        [1, 'rgba(5,4,8,1)'],
+      ]),
+    );
+    this.fog.anchor.set(0.5);
+    this.app.stage.addChild(this.fog);
+
     // 비네트: 화면 가장자리를 어둠으로 잠식
     this.vignette = new Sprite(
       radialTexture(1024, [
@@ -259,6 +278,7 @@ export class Renderer {
     this.floor.width = w;
     this.floor.height = h;
     this.light.position.set(w / 2, h / 2);
+    this.fog.position.set(w / 2, h / 2);
     this.vignette.position.set(w / 2, h / 2);
     const cover = Math.max(w, h) * 1.45;
     this.vignette.width = cover;
@@ -275,6 +295,7 @@ export class Renderer {
 
   // 던전 교체 시 정적 지형·소품·팔레트 재구축, 엔티티 스프라이트 초기화
   setDungeon(d: Dungeon): void {
+    this.dungeonRef = d;
     const vis = BIOME_VISUALS[d.biome];
 
     this.floor.texture = this.textures[vis.floorKey];
@@ -500,8 +521,29 @@ export class Renderer {
     g.circle(x, y, 5 + Math.sin(this.portalSpin * 3) * 2).fill({ color: 0xd8fff4, alpha: 0.9 });
   }
 
+  // 시야 판정: 거리 + 벽 차폐(LoS). 시뮬레이션은 이를 모르며 렌더 표시에만 쓴다.
+  private isSeen(s: GameState, pos: { x: number; y: number }): boolean {
+    if (!this.fogOn) return true;
+    const p = s.player;
+    const d = Math.hypot(pos.x - p.pos.x, pos.y - p.pos.y);
+    return d <= T.visionRange * p.visionMul && hasLineOfSight(this.dungeonRef, p.pos, pos);
+  }
+
+  private fogOn = true;
+
+  // 은신처 같은 안전지대는 fog 없이 전부 보여준다 (상인·스테이션 발견성)
+  setFog(on: boolean): void {
+    this.fogOn = on;
+    this.fog.visible = on;
+  }
+
   draw(s: GameState, dtMs: number): void {
     this.updateCamera(s, dtMs);
+    // fog·광원 크기를 시야 배율에 맞춰 갱신 — 시야 아이템이 visionMul을 올리면 즉시 반영
+    const vision = T.visionRange * s.player.visionMul;
+    this.fog.width = vision * 4 * ZOOM;
+    this.fog.height = vision * 4 * ZOOM * PROJ;
+    this.light.width = this.light.height = vision * 2.4 * ZOOM;
     this.drawPlayer(s, dtMs);
     this.drawAim(s);
     this.drawEnemies(s);
@@ -558,6 +600,7 @@ export class Renderer {
     const g = this.projectilesG;
     g.clear();
     for (const pr of s.projectiles) {
+      if (!this.isSeen(s, pr.pos)) continue; // 시야 밖 화살은 fog에서 나올 때 나타난다
       const tail = { x: pr.pos.x - pr.vel.x * 0.04, y: pr.pos.y - pr.vel.y * 0.04 };
       g.moveTo(tail.x, tail.y).lineTo(pr.pos.x, pr.pos.y).stroke({ color: 0x6a1d1d, width: 3 });
       g.circle(pr.pos.x, pr.pos.y, pr.radius).fill(0xc03a2a);
@@ -571,6 +614,7 @@ export class Renderer {
     const pulse = 1 + 0.15 * Math.sin(s.tick * 0.15);
     for (const d of s.drops) {
       alive.add(d.id);
+      const seen = this.isSeen(s, d.pos); // 시야 밖 전리품도 숨긴다 — 접근해야 드러난다
       if (d.item) {
         let sp = this.dropSprites.get(d.id);
         if (!sp) {
@@ -581,10 +625,11 @@ export class Renderer {
           this.world.addChildAt(sp, this.world.getChildIndex(this.dropsG));
           this.dropSprites.set(d.id, sp);
         }
+        sp.visible = seen;
         const bob = Math.sin(s.tick * 0.1 + d.id) * 3;
         sp.position.set(d.pos.x, d.pos.y + bob);
-        this.shadowJobs.push({ x: d.pos.x, y: d.pos.y + 10, r: 8, lift: 3 - bob });
-      } else {
+        if (seen) this.shadowJobs.push({ x: d.pos.x, y: d.pos.y + 10, r: 8, lift: 3 - bob });
+      } else if (seen) {
         g.circle(d.pos.x, d.pos.y, 7 * pulse).fill(0xb08d3e);
         g.circle(d.pos.x, d.pos.y, 3.5 * pulse).fill(0xe6c878);
         this.shadowJobs.push({ x: d.pos.x, y: d.pos.y + 6, r: 6, lift: 0 });
@@ -734,7 +779,10 @@ export class Renderer {
       entry.char.tint = tint;
       if (entry.weapon) entry.weapon.tint = tint;
 
-      this.shadowJobs.push({ x: e.pos.x, y: e.pos.y + 8, r: e.radius, lift: 0 });
+      // 시야 게이팅: 시야 밖(거리·벽 차폐) 몬스터는 그리지 않는다 — 시뮬레이션은 계속 돈다
+      const seen = this.isSeen(s, e.pos);
+      entry.root.visible = seen;
+      if (seen) this.shadowJobs.push({ x: e.pos.x, y: e.pos.y + 8, r: e.radius, lift: 0 });
     }
     for (const [id, entry] of this.enemySprites) {
       if (!alive.has(id)) {
@@ -743,6 +791,7 @@ export class Renderer {
         corpse.anchor.set(0.5, 0.72);
         corpse.position.copyFrom(entry.root.position);
         corpse.scale.copyFrom(entry.root.scale);
+        corpse.visible = entry.root.visible; // 시야 밖에서 죽으면 시체 연출도 생략
         corpse.zIndex = corpse.position.y - 1; // 산 자들보다 살짝 뒤
         this.entityLayer.addChild(corpse);
         this.corpses.push({ sp: corpse, life: 400, spin: 1 });

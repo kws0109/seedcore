@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { step } from '../src/game/sim';
-import { createEnemy, createState, idleInput } from '../src/game/state';
+import { createEnemy, createState, createStateFromDungeon, idleInput } from '../src/game/state';
 import { T } from '../src/game/tuning';
+import { TILE, type Dungeon } from '../src/game/dungeon';
 import ENEMIES from '../src/data/enemies.json';
 
 describe('combat: 대시', () => {
@@ -209,6 +210,30 @@ describe('combat: 자동 공격', () => {
     const s = createState();
     s.enemies.push(createEnemy(1, { x: T.autoAttackRange + 100, y: 0 }));
     step(s, { ...idleInput(), aimX: 100, aimY: 0 });
+    expect(s.events.some((e) => e.type === 'playerAttack')).toBe(false);
+  });
+
+  it('벽에 가려 보이지 않는 적에게는 발동하지 않는다', () => {
+    // 10×10, x=5 열이 통로 없는 세로 벽 — 플레이어와 적이 벽 양쪽에서 범위 내 대치
+    const w = 10;
+    const h = 10;
+    const tiles = new Uint8Array(w * h);
+    for (let y = 1; y < h - 1; y++) for (let x = 1; x < w - 1; x++) tiles[y * w + x] = 1;
+    for (let y = 1; y <= 8; y++) tiles[y * w + 5] = 0;
+    const d: Dungeon = {
+      seed: 0,
+      biome: 'crypt',
+      w,
+      h,
+      tiles,
+      rooms: [],
+      spawn: { x: 4.5 * TILE, y: 2.5 * TILE },
+      enemies: [],
+      torches: [],
+    };
+    const s = createStateFromDungeon(d);
+    s.enemies.push(createEnemy(1, { x: 6.5 * TILE, y: 2.5 * TILE })); // 거리 128 ≤ 220, LoS 차단
+    step(s, { ...idleInput(), aimX: 6.5 * TILE, aimY: 2.5 * TILE });
     expect(s.events.some((e) => e.type === 'playerAttack')).toBe(false);
   });
 });

@@ -11,6 +11,7 @@ export const T = {
   attackDamage: 34,
   attackCooldown: 0.25,
   autoAttackRange: 220, // 이 거리 안에 적이 있으면 자동으로 휘두른다 (Hall of Torment식)
+  visionRange: 300, // 기본 시야 반경(월드px). 실효 시야 = visionRange × player.visionMul (시야 아이템 대응)
   attackKnockback: 260,
   hitstopSec: 0.05,
   playerInvulnAfterHit: 0.6,

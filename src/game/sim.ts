@@ -105,9 +105,12 @@ function stepMove(s: GameState, inp: InputFrame): void {
 function stepAttack(s: GameState, _inp: InputFrame): void {
   const p = s.player;
   if (p.attackCooldown > 0) return;
-  // 자동 공격: 근처에 적이 있으면 커서 방향(facing)으로 공격속도에 맞춰 자동 발동
+  // 자동 공격: 시야에 들어온(거리+LoS) 적이 있으면 커서 방향으로 공격속도에 맞춰 자동 발동.
+  // 벽 너머의 보이지 않는 적에게 허공 스윙하지 않도록 LoS를 요구한다.
   const anyNear = s.enemies.some(
-    (e) => Math.hypot(e.pos.x - p.pos.x, e.pos.y - p.pos.y) <= T.autoAttackRange,
+    (e) =>
+      Math.hypot(e.pos.x - p.pos.x, e.pos.y - p.pos.y) <= T.autoAttackRange &&
+      hasLineOfSight(s.dungeon, p.pos, e.pos),
   );
   if (!anyNear) return;
   p.attackCooldown = T.attackCooldown;

@@ -25,6 +25,7 @@ export interface Player {
   invulnTimer: number;
   atkMul: number; // 아이템 누적 공격 배율
   speedMul: number; // 아이템 누적 이속 배율
+  visionMul: number; // 시야 배율 — 시야 아이템·업그레이드가 올린다 (렌더 전용 소비)
 }
 
 export type EnemyKind = 'ghoul' | 'archer' | 'brute';
@@ -111,6 +112,7 @@ export function createPlayer(pos: Vec): Player {
     invulnTimer: 0,
     atkMul: 1,
     speedMul: 1,
+    visionMul: 1,
   };
 }
 

@@ -87,6 +87,7 @@ async function boot(): Promise<void> {
     renderer.setDungeon(hideout);
     renderer.setProps(HIDEOUT_STATIONS.map((s) => ({ texKey: s.texKey, pos: s.pos })));
     renderer.setPortal(null);
+    renderer.setFog(false);
     infoEl.textContent = '은신처';
     hideOverlay();
     market.close();
@@ -106,6 +107,7 @@ async function boot(): Promise<void> {
     renderer.setDungeon(dungeon);
     renderer.setProps([]);
     renderer.setPortal(null);
+    renderer.setFog(true);
     infoEl.textContent = `${BIOME_NAMES[dungeon.biome]} · 시드 ${seed}${viaCore ? ' · 코어 던전' : ''}`;
     hideOverlay();
     market.close();
