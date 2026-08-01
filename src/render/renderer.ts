@@ -183,12 +183,15 @@ export class Renderer {
     this.vignette.anchor.set(0.5);
     this.app.stage.addChild(this.vignette);
 
-    // 월드 레이어 순서: 벽 → 횃불 → 그림자 → 드롭 → 적 → 플레이어 → 투사체 → 이펙트
+    // 월드 레이어 순서: 벽 → 횃불 → 그림자 → 조준링 → 드롭 → 엔티티(y정렬) → 투사체 → 이펙트
     this.world.addChild(this.walls);
     this.world.addChild(this.torchLayer);
     this.world.addChild(this.shadowsG);
     this.world.addChild(this.aimG);
     this.world.addChild(this.dropsG);
+    this.world.addChild(this.portalG);
+    this.entityLayer.sortableChildren = true; // zIndex = 월드 y — 아래쪽이 앞에 그려진다
+    this.world.addChild(this.entityLayer);
     this.playerAnim = await loadAnimSet(BASE, 'player', PLAYER_CLIPS, 16, true);
     this.enemyAnim = {
       ghoul: await loadAnimSet(BASE, 'ghoul', ENEMY_CLIPS, 8, false),
@@ -203,7 +206,7 @@ export class Renderer {
       sp.scale.set(0.62); // 128px 셀 → 표시 약 80px
       this.playerSprite.addChild(sp);
     }
-    this.world.addChild(this.playerSprite);
+    this.entityLayer.addChild(this.playerSprite);
     this.world.addChild(this.projectilesG);
     this.world.addChild(this.fx); // 이펙트는 엔티티 위에 그린다
 
@@ -295,7 +298,7 @@ export class Renderer {
     this.shadowsG.clear();
   }
 
-  private propsLayer = new Container();
+  private propSprites: Sprite[] = [];
   private portalG = new Graphics();
   private portalPos: { x: number; y: number } | null = null;
   private portalSpin = 0;
@@ -303,6 +306,7 @@ export class Renderer {
   // 프로시저럴 애니메이션 상태 (전부 렌더 전용 — 시뮬레이션 무관)
   private shadowsG = new Graphics();
   private aimG = new Graphics(); // 조준 링 네비게이터 (연속 각도 — 스프라이트 양자화 보완)
+  private entityLayer = new Container(); // 플레이어·몬스터·시체 — y-정렬 대상
   private shadowJobs: Array<{ x: number; y: number; r: number; lift: number }> = [];
   private enemyPrevPos = new Map<number, { x: number; y: number }>();
   private corpses: Array<{ sp: Sprite; life: number; spin: number }> = [];
@@ -342,18 +346,18 @@ export class Renderer {
   }
 
   // 은신처 스테이션 등 고정 소품 배치 (던전 교체 시 setDungeon 뒤에 호출)
+  // 엔티티 레이어에 넣어 플레이어와 y-정렬 — 소품 앞뒤로 자연스럽게 지나다닌다.
   setProps(props: Array<{ texKey: keyof typeof TEXTURES; pos: { x: number; y: number } }>): void {
-    this.propsLayer.removeChildren().forEach((c) => c.destroy());
-    if (!this.propsLayer.parent) {
-      this.world.addChildAt(this.propsLayer, this.world.getChildIndex(this.playerSprite));
-      this.world.addChildAt(this.portalG, this.world.getChildIndex(this.playerSprite));
-    }
+    for (const sp of this.propSprites) sp.destroy();
+    this.propSprites = [];
     for (const p of props) {
       const sp = new Sprite(this.textures[p.texKey]);
       sp.anchor.set(0.5, 0.7);
       sp.scale.set(84 / 256);
       sp.position.set(p.pos.x, p.pos.y);
-      this.propsLayer.addChild(sp);
+      sp.zIndex = p.pos.y;
+      this.entityLayer.addChild(sp);
+      this.propSprites.push(sp);
     }
   }
 
@@ -514,6 +518,7 @@ export class Renderer {
     this.playerWeapon.texture = tex.weapon![dir][frame];
 
     g.position.set(p.pos.x, p.pos.y);
+    g.zIndex = p.pos.y; // y-정렬
     const blink = p.invulnTimer > 0 && Math.floor(p.invulnTimer * 20) % 2 === 0;
     g.alpha = p.dashTimer > 0 ? 0.55 : blink ? 0.4 : 1;
 
@@ -539,8 +544,7 @@ export class Renderer {
           root.addChild(weapon);
         }
         root.scale.set(displayScale[e.kind]);
-        // 플레이어 스프라이트 바로 아래 레이어에 삽입
-        this.world.addChildAt(root, this.world.getChildIndex(this.playerSprite));
+        this.entityLayer.addChild(root);
         entry = { root, char, weapon, lastDir: 0 };
         this.enemySprites.set(e.id, entry);
       }
@@ -585,6 +589,7 @@ export class Renderer {
       // 피격: 팽창 펄스 + 적색 틴트
       const flash = e.hitFlash > 0 ? e.hitFlash / 0.1 : 0;
       entry.root.position.set(e.pos.x, e.pos.y);
+      entry.root.zIndex = e.pos.y; // y-정렬
       entry.root.scale.set(displayScale[e.kind] * (1 + flash * 0.18));
       const tint = e.hitFlash > 0 ? 0xff6a5a : 0xffffff;
       entry.char.tint = tint;
@@ -599,7 +604,8 @@ export class Renderer {
         corpse.anchor.set(0.5, 0.72);
         corpse.position.copyFrom(entry.root.position);
         corpse.scale.copyFrom(entry.root.scale);
-        this.world.addChildAt(corpse, this.world.getChildIndex(this.playerSprite));
+        corpse.zIndex = corpse.position.y - 1; // 산 자들보다 살짝 뒤
+        this.entityLayer.addChild(corpse);
         this.corpses.push({ sp: corpse, life: 400, spin: 1 });
         entry.root.destroy({ children: true });
         this.enemySprites.delete(id);

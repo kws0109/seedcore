@@ -75,6 +75,13 @@
         model.traverse((o) => {
           if (o.isBone) window.__bones.push(o.name);
         });
+        // 메시 목록 (스킨드/정적 구분 — 바인드 포즈 유령 복사본 진단용)
+        window.__meshes = [];
+        model.traverse((o) => {
+          if (o.isMesh || o.isSkinnedMesh) {
+            window.__meshes.push({ name: o.name, skinned: !!o.isSkinnedMesh, verts: o.geometry?.attributes?.position?.count ?? 0 });
+          }
+        });
 
         // ?weapon= 파라미터: 무기 GLB를 오른손 본에 부착 (강체 — 스키닝 없음 = 절대 안 휨)
         // 무기 교체 설계: 아이템 시스템이 붙으면 이 GLB만 갈아끼우고 무기 패스만 재캡처한다.

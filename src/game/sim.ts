@@ -270,7 +270,8 @@ function separateBodies(s: GameState): void {
       const dx = b.pos.x - a.pos.x;
       const dy = b.pos.y - a.pos.y;
       const dist = Math.hypot(dx, dy);
-      const min = a.radius + b.radius;
+      // 스프라이트 몸이 충돌원보다 커서, 몬스터끼리는 반경 합의 1.35배로 간격을 벌린다
+      const min = (a.radius + b.radius) * 1.35;
       if (dist >= min) continue;
       // 완전 동일점이면 인덱스 기반 결정론적 방향으로 분리
       const nx = dist > 0.0001 ? dx / dist : Math.cos(i * 2.399 + j);
