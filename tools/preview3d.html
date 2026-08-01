@@ -103,7 +103,9 @@
             );
             const grip = new THREE.Group();
             grip.add(weapon);
-            grip.rotation.set(Math.PI / 2, 0, 0); // 기본: 전방으로 눕힘 (콘솔에서 조정)
+            // 실측 튜닝값 (2026-08-01): 손목→손바닥 +Y 6유닛, 몸 바깥쪽 틸트
+            grip.position.set(0, 6, 0);
+            grip.rotation.set(-0.35, 0, 0.55);
             if (hand) {
               hand.add(grip);
               window.__weaponGrip = grip;
@@ -144,9 +146,20 @@
         return out;
       };
 
-      // 화면 확인용 루프
+      // 그립 튜닝 API: 위치(본 로컬 단위)·회전(라디안)을 한 번에 설정
+      window.__setGrip = (px, py, pz, rx, ry, rz) => {
+        const g = window.__weaponGrip;
+        if (!g) return 'no grip';
+        g.position.set(px, py, pz);
+        g.rotation.set(rx, ry, rz);
+        return 'ok';
+      };
+
+      // 화면 확인용 루프. __pause 중에는 __snap 결과를 덮어쓰지 않는다.
+      window.__pause = false;
       (function animate() {
         requestAnimationFrame(animate);
+        if (window.__pause) return;
         if (mixer) mixer.update(clock.getDelta());
         renderer.render(scene, camera);
       })();
